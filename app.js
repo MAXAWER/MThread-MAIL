@@ -33,6 +33,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let activeChatUser = null;
     let messagesUnsubscribe = null;
     let chatsUnsubscribe = null;
+    let statusUnsubscribe = null;
+    let activeChatTypingUnsubscribe = null;
+
+    const chatOptionsBtn = document.getElementById('chat-options-btn');
+    const chatOptionsMenu = document.getElementById('chat-options-menu');
+    const btnClearChat = document.getElementById('btn-clear-chat');
 
     // Show specific step
     window.showStep = (stepId) => {
@@ -131,7 +137,11 @@ document.addEventListener('DOMContentLoaded', () => {
             updateProfileUI();
             showSnackbar('Аватарка обновлена!');
         } catch (err) {
-            showSnackbar('Ошибка загрузки: ' + err.message);
+            if (err.message.includes('not been set up')) {
+                showSnackbar('Ошибка: Firebase Storage не активирован в консоли!');
+            } else {
+                showSnackbar('Ошибка загрузки: ' + err.message);
+            }
         } finally {
             uploadProgress.classList.add('hidden');
             avatarInput.value = '';
@@ -185,6 +195,21 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateProfileUI();
                 loadChatList();
                 setupPushNotifications();
+
+                // Presence tracking
+                const presenceRef = db.collection('users').doc(user.uid);
+                presenceRef.update({ status: 'online', lastSeen: firebase.firestore.FieldValue.serverTimestamp() }).catch(()=>{});
+                
+                window.addEventListener('beforeunload', () => {
+                    presenceRef.update({ status: 'offline', lastSeen: firebase.firestore.FieldValue.serverTimestamp() }).catch(()=>{});
+                });
+                document.addEventListener('visibilitychange', () => {
+                    if (document.visibilityState === 'hidden') {
+                        presenceRef.update({ status: 'offline', lastSeen: firebase.firestore.FieldValue.serverTimestamp() }).catch(()=>{});
+                    } else {
+                        presenceRef.update({ status: 'online', lastSeen: firebase.firestore.FieldValue.serverTimestamp() }).catch(()=>{});
+                    }
+                });
             } else {
                 authModal.classList.remove('hidden');
                 showStep('step-login');
@@ -319,16 +344,61 @@ document.addEventListener('DOMContentLoaded', () => {
         activeChatUser = { uid: targetUid, ...(targetData || {}) };
         
         activeChatName.textContent = (targetData && targetData.username) ? targetData.username : 'Чат';
+        chatOptionsBtn.classList.remove('hidden');
         
         if (messagesUnsubscribe) messagesUnsubscribe();
+        if (statusUnsubscribe) statusUnsubscribe();
+        if (activeChatTypingUnsubscribe) activeChatTypingUnsubscribe();
         
         // Hide mobile chat list
         if (window.innerWidth <= 767) {
             document.body.classList.add('chat-active');
         }
 
+        const activeChatStatus = document.getElementById('active-chat-status');
+        let currentStatus = 'Офлайн';
+        let currentTyping = false;
+
+        const updateStatusUI = () => {
+            activeChatStatus.classList.remove('hidden');
+            if (currentTyping) {
+                activeChatStatus.textContent = 'Печатает...';
+                activeChatStatus.className = 'text-xs text-blue-400 transition-all animate-pulse';
+            } else {
+                if (currentStatus === 'online') {
+                    activeChatStatus.textContent = 'В сети';
+                    activeChatStatus.className = 'text-xs text-primary-container transition-all';
+                } else {
+                    activeChatStatus.textContent = currentStatus;
+                    activeChatStatus.className = 'text-xs text-on-surface-variant/60 transition-all';
+                }
+            }
+        };
+
+        statusUnsubscribe = db.collection('users').doc(targetUid).onSnapshot(doc => {
+            const data = doc.data();
+            if (data) {
+                if (data.status === 'online') {
+                    currentStatus = 'online';
+                } else {
+                    const time = data.lastSeen ? new Date(data.lastSeen.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+                    currentStatus = time ? `Был(а) в ${time}` : 'Офлайн';
+                }
+                updateStatusUI();
+            }
+        });
+
+        activeChatTypingUnsubscribe = db.collection('chats').doc(chatId).onSnapshot(doc => {
+            const data = doc.data();
+            if (data && data.typing) {
+                currentTyping = !!data.typing[targetUid];
+                updateStatusUI();
+            }
+        });
+
         messagesContainer.innerHTML = '<div class="flex-1 flex items-center justify-center text-on-surface-variant">Загрузка...</div>';
         
+        let isFirstLoad = true;
         messagesUnsubscribe = db.collection('chats').doc(chatId).collection('messages')
             .orderBy('timestamp', 'asc')
             .limit(100)
@@ -340,7 +410,13 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 
                 snapshot.forEach(doc => renderMessage(doc.id, doc.data()));
-                messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
+                
+                if (isFirstLoad) {
+                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    isFirstLoad = false;
+                } else {
+                    messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
+                }
             });
     }
 
@@ -385,9 +461,30 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h4 class="text-sm font-semibold text-white truncate">${targetData.username || '...'}</h4>
                                 <span class="text-[10px] text-on-surface-variant/60">${time}</span>
                             </div>
-                            <p class="text-xs text-on-surface-variant/60 truncate">${chat.lastMessage || 'Начать диалог'}</p>
+                            <p class="text-xs text-on-surface-variant/60 truncate">${chat.lastMessageSender === currentUser.uid ? 'Вы: ' : ''}${chat.lastMessage || 'Начать диалог'}</p>
                         </div>
                     `;
+
+                    // Context Menu Delete Chat
+                    div.addEventListener('contextmenu', async (e) => {
+                        e.preventDefault();
+                        if (confirm(`Удалить диалог с ${targetData.username}?`)) {
+                            try { await db.collection('chats').doc(chat.id).delete(); } catch(err) {}
+                        }
+                    });
+
+                    // Long press for mobile delete
+                    let pressTimer;
+                    div.addEventListener('touchstart', (e) => {
+                        pressTimer = window.setTimeout(async () => {
+                            if (confirm(`Удалить диалог с ${targetData.username}?`)) {
+                                try { await db.collection('chats').doc(chat.id).delete(); } catch(err) {}
+                            }
+                        }, 800);
+                    });
+                    div.addEventListener('touchend', () => clearTimeout(pressTimer));
+                    div.addEventListener('touchmove', () => clearTimeout(pressTimer));
+
                     chatListContainer.appendChild(div);
                 });
                 attachRipples();
@@ -397,9 +494,20 @@ document.addEventListener('DOMContentLoaded', () => {
     let contextTargetId = null;
     let contextTargetText = null;
 
-    function showContextMenu(x, y, msgId, currentText) {
+    function showContextMenu(x, y, msgId, currentText, isMe) {
         contextTargetId = msgId;
         contextTargetText = currentText;
+        
+        if (isMe) {
+            ctxEditBtn.classList.remove('hidden');
+            ctxEditBtn.classList.add('flex');
+            ctxEditBtn.nextElementSibling.classList.remove('hidden'); // The divider line
+        } else {
+            ctxEditBtn.classList.add('hidden');
+            ctxEditBtn.classList.remove('flex');
+            ctxEditBtn.nextElementSibling.classList.add('hidden');
+        }
+
         contextMenu.classList.remove('hidden');
         contextMenu.classList.add('flex');
         
@@ -420,7 +528,45 @@ document.addEventListener('DOMContentLoaded', () => {
             contextMenu.classList.add('hidden');
             contextMenu.classList.remove('flex');
         }
+        if (chatOptionsMenu && !chatOptionsMenu.contains(e.target) && e.target !== chatOptionsBtn && !chatOptionsBtn.contains(e.target)) {
+            chatOptionsMenu.classList.add('hidden');
+            chatOptionsMenu.classList.remove('flex');
+        }
     });
+
+    if (chatOptionsBtn) {
+        chatOptionsBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            chatOptionsMenu.classList.toggle('hidden');
+            chatOptionsMenu.classList.toggle('flex');
+        });
+    }
+
+    if (btnClearChat) {
+        btnClearChat.addEventListener('click', async () => {
+            chatOptionsMenu.classList.add('hidden');
+            chatOptionsMenu.classList.remove('flex');
+            if (!activeChatId) return;
+            
+            if (confirm("Удалить ВСЕ сообщения в этом чате?")) {
+                try {
+                    const msgs = await db.collection('chats').doc(activeChatId).collection('messages').get();
+                    const batch = db.batch();
+                    msgs.forEach(doc => batch.delete(doc.ref));
+                    await batch.commit();
+                    
+                    await db.collection('chats').doc(activeChatId).update({
+                        lastMessage: "История очищена",
+                        lastMessageSender: null,
+                        lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                    showSnackbar("История очищена");
+                } catch(e) {
+                    showSnackbar("Ошибка: " + e.message);
+                }
+            }
+        });
+    }
 
     ctxDeleteBtn.addEventListener('click', async () => {
         contextMenu.classList.add('hidden');
@@ -455,7 +601,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const time = msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
         
         msgDiv.innerHTML = `
-            <div class="msg-bubble cursor-pointer ${isMe ? 'bg-primary-container text-on-primary-container rounded-[24px] rounded-br-sm' : 'bg-surface-container text-white rounded-[24px] rounded-bl-sm'} p-4 shadow-lg transition-all active:scale-95">
+            <div class="msg-bubble cursor-pointer ${isMe ? 'bg-primary-container text-on-primary-container rounded-[24px] rounded-br-sm' : 'bg-surface-container text-white rounded-[24px] rounded-bl-sm'} p-4 shadow-lg transition-all active:scale-[0.98]">
                 <p class="text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap">${escapeHtml(msg.text)}</p>
                 ${msg.edited ? '<span class="text-[10px] opacity-50 block mt-1">(изменено)</span>' : ''}
             </div>
@@ -465,35 +611,56 @@ document.addEventListener('DOMContentLoaded', () => {
             </div>
         `;
 
-        if (isMe) {
-            const bubble = msgDiv.querySelector('.msg-bubble');
-            // Desktop right click
-            bubble.addEventListener('contextmenu', (e) => {
-                e.preventDefault();
-                showContextMenu(e.clientX, e.clientY, docId, msg.text);
-            });
-            // Mobile tap
-            bubble.addEventListener('click', (e) => {
-                if (window.innerWidth <= 767) {
-                    showContextMenu(e.clientX, e.clientY, docId, msg.text);
-                }
-            });
-        }
+        const bubble = msgDiv.querySelector('.msg-bubble');
+        bubble.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            showContextMenu(e.clientX, e.clientY, docId, msg.text, isMe);
+        });
+        bubble.addEventListener('click', (e) => {
+            if (window.innerWidth <= 767) {
+                showContextMenu(e.clientX, e.clientY, docId, msg.text, isMe);
+            }
+        });
 
         messagesContainer.appendChild(msgDiv);
     };
 
+    let typingTimeout;
+    messageInput.addEventListener('input', () => {
+        if (!activeChatId) return;
+        db.collection('chats').doc(activeChatId).set({
+            typing: { [currentUser.uid]: true }
+        }, { merge: true }).catch(()=>{});
+
+        clearTimeout(typingTimeout);
+        typingTimeout = setTimeout(() => {
+            db.collection('chats').doc(activeChatId).set({
+                typing: { [currentUser.uid]: false }
+            }, { merge: true }).catch(()=>{});
+        }, 1500);
+    });
+
     // Send Message on Enter
     messageInput.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            messageForm.dispatchEvent(new Event('submit'));
+        if (e.key === 'Enter') {
+            if (window.innerWidth <= 767) {
+                // Mobile: do nothing, let default newline happen
+            } else {
+                if (!e.shiftKey) {
+                    e.preventDefault();
+                    messageForm.dispatchEvent(new Event('submit'));
+                }
+            }
         }
     });
 
     messageForm.addEventListener('submit', async (e) => {
         e.preventDefault();
         const text = messageInput.value.trim();
+        
+        // Keep keyboard open on mobile
+        setTimeout(() => messageInput.focus(), 10);
+
         if (text && db && currentUser && activeChatId) {
             const timestamp = firebase.firestore.FieldValue.serverTimestamp();
             
@@ -508,6 +675,7 @@ document.addEventListener('DOMContentLoaded', () => {
             // Update chat meta
             db.collection("chats").doc(activeChatId).set({
                 lastMessage: text,
+                lastMessageSender: currentUser.uid,
                 lastUpdated: timestamp
             }, { merge: true });
 

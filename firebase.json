@@ -22,5 +22,8 @@
       "firebase-debug.*.log",
       "*.local"
     ]
+  },
+  "storage": {
+    "rules": "storage.rules"
   }
 }

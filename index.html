@@ -104,13 +104,19 @@
             <header class="h-[72px] px-4 md:px-8 flex items-center justify-between border-b border-white/5 bg-black/40 backdrop-blur-md shrink-0">
                 <div class="flex items-center gap-4">
                     <button class="md:hidden p-2 text-on-surface-variant" onclick="toggleMobileChat(false)"><span class="material-symbols-outlined">arrow_back</span></button>
-                    <div class="flex items-center gap-3">
-                        <h3 id="active-chat-name" class="text-lg font-bold text-white">Выберите чат</h3>
+                    <div class="flex flex-col">
+                        <h3 id="active-chat-name" class="text-lg font-bold text-white leading-tight">Выберите чат</h3>
+                        <span id="active-chat-status" class="text-xs text-primary-container hidden transition-all"></span>
                     </div>
                 </div>
-                <div class="flex gap-1">
-                    <button class="p-2 text-on-surface-variant hover:text-white ripple-container rounded-full" onclick="showSnackbar('Поиск по сообщениям скоро')"><span class="material-symbols-outlined">search</span></button>
-                    <button class="p-2 text-on-surface-variant hover:text-white ripple-container rounded-full" onclick="showSnackbar('Дополнительные функции чата в разработке')"><span class="material-symbols-outlined">more_vert</span></button>
+                <div class="flex gap-1 relative">
+                    <button id="chat-options-btn" class="p-2 text-on-surface-variant hover:text-white ripple-container rounded-full hidden"><span class="material-symbols-outlined">more_vert</span></button>
+                    <!-- Chat Options Menu -->
+                    <div id="chat-options-menu" class="absolute right-0 top-full mt-2 bg-surface-container border border-white/10 rounded-xl shadow-2xl z-[100] hidden flex-col w-48 overflow-hidden">
+                        <button id="btn-clear-chat" class="w-full text-left px-4 py-3 text-sm text-red-400 hover:bg-white/5 transition-all flex items-center gap-3">
+                            <span class="material-symbols-outlined text-[18px]">delete_sweep</span> Очистить историю
+                        </button>
+                    </div>
                 </div>
             </header>
 
@@ -122,8 +128,7 @@
             <!-- Input -->
             <div class="p-2 pb-safe md:p-8 bg-gradient-to-t from-black via-black to-transparent shrink-0">
                 <form id="message-form" class="max-w-5xl mx-auto flex items-end gap-1 md:gap-4 bg-surface-container/50 md:bg-surface-container/50 bg-black md:border border-white/5 p-1 md:p-2 rounded-[24px] md:rounded-[28px] focus-within:border-primary-container/30 transition-all shadow-2xl border-t border-white/10 md:border-t-0">
-                    <button type="button" class="p-2 md:p-3 text-on-surface-variant hover:text-white ripple-container rounded-full" onclick="showSnackbar('Отправка вложений появится в v2')"><span class="material-symbols-outlined text-[20px] md:text-[24px]">add_circle</span></button>
-                    <div class="flex-1 py-2 md:py-3">
+                    <div class="flex-1 py-2 md:py-3 pl-4 md:pl-2">
                         <textarea id="message-input" rows="1" placeholder="Сообщение..." class="w-full bg-transparent border-none focus:ring-0 text-white placeholder-on-surface-variant/30 outline-none resize-none custom-scroll text-[15px] md:text-base leading-snug"></textarea>
                     </div>
                     <button id="send-btn" type="submit" class="w-10 h-10 md:w-12 md:h-12 mb-1 md:mb-0 mr-1 md:mr-0 bg-primary-container text-on-primary-container rounded-full md:rounded-[20px] flex items-center justify-center hover:brightness-110 active:scale-95 transition-all ripple-container shrink-0">
