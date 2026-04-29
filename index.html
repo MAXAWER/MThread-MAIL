@@ -65,13 +65,14 @@
                 <h2 class="text-2xl font-bold text-white">Чаты</h2>
                 <button class="md:hidden p-2 text-on-surface-variant"><span class="material-symbols-outlined">settings</span></button>
             </div>
-            <div class="px-6 mb-4 relative">
-                <div class="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50 transition-all">
+            <div class="px-6 mb-4">
+                <div class="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50 transition-all relative">
                     <span class="material-symbols-outlined text-on-surface-variant/50 text-sm">search</span>
                     <input type="text" id="user-search-input" placeholder="Поиск по логину..." class="bg-transparent border-none focus:ring-0 text-sm text-white w-full outline-none">
-                </div>
-                <!-- Search Results Dropdown -->
-                <div id="user-search-results" class="absolute left-6 right-6 top-14 bg-surface-container border border-white/10 rounded-xl shadow-2xl z-50 hidden flex-col max-h-60 overflow-y-auto custom-scroll">
+                    
+                    <!-- Search Results Dropdown -->
+                    <div id="user-search-results" class="absolute left-0 right-0 top-full mt-2 bg-surface-container border border-white/10 rounded-xl shadow-2xl z-50 hidden flex-col max-h-60 overflow-y-auto custom-scroll">
+                    </div>
                 </div>
             </div>
             <div id="chat-list-container" class="flex-1 overflow-y-auto custom-scroll">
@@ -91,7 +92,7 @@
                 </div>
             </div>
             <!-- Mobile Bottom Nav -->
-            <div class="md:hidden flex justify-around p-4 bg-surface border-t border-white/5 mt-auto">
+            <div class="md:hidden flex justify-around p-4 pb-safe bg-surface border-t border-white/5 mt-auto shrink-0 z-50">
                 <button class="text-primary-container flex flex-col items-center gap-1 ripple-container p-2 rounded-xl"><span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1">chat</span><span class="text-[10px] uppercase font-bold">Чаты</span></button>
                 <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="showSnackbar('Группы появятся в следующем обновлении')"><span class="material-symbols-outlined">group</span><span class="text-[10px] uppercase font-bold">Группы</span></button>
                 <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="showSettings()"><span class="material-symbols-outlined">person</span><span class="text-[10px] uppercase font-bold">Профиль</span></button>
@@ -120,14 +121,14 @@
             </div>
 
             <!-- Input -->
-            <div class="p-4 md:p-8 bg-gradient-to-t from-black via-black to-transparent shrink-0">
-                <form id="message-form" class="max-w-5xl mx-auto flex items-end gap-2 md:gap-4 bg-surface-container/50 border border-white/5 p-2 rounded-[28px] focus-within:border-primary-container/30 transition-all shadow-2xl">
-                    <button type="button" class="p-3 text-on-surface-variant hover:text-white ripple-container rounded-full" onclick="showSnackbar('Отправка вложений появится в v2')"><span class="material-symbols-outlined">add_circle</span></button>
-                    <div class="flex-1 py-3">
-                        <textarea id="message-input" rows="1" placeholder="Сообщение..." class="w-full bg-transparent border-none focus:ring-0 text-white placeholder-on-surface-variant/30 outline-none resize-none custom-scroll text-sm md:text-base"></textarea>
+            <div class="p-2 pb-safe md:p-8 bg-gradient-to-t from-black via-black to-transparent shrink-0">
+                <form id="message-form" class="max-w-5xl mx-auto flex items-end gap-1 md:gap-4 bg-surface-container/50 md:bg-surface-container/50 bg-black md:border border-white/5 p-1 md:p-2 rounded-[24px] md:rounded-[28px] focus-within:border-primary-container/30 transition-all shadow-2xl border-t border-white/10 md:border-t-0">
+                    <button type="button" class="p-2 md:p-3 text-on-surface-variant hover:text-white ripple-container rounded-full" onclick="showSnackbar('Отправка вложений появится в v2')"><span class="material-symbols-outlined text-[20px] md:text-[24px]">add_circle</span></button>
+                    <div class="flex-1 py-2 md:py-3">
+                        <textarea id="message-input" rows="1" placeholder="Сообщение..." class="w-full bg-transparent border-none focus:ring-0 text-white placeholder-on-surface-variant/30 outline-none resize-none custom-scroll text-[15px] md:text-base leading-snug"></textarea>
                     </div>
-                    <button id="send-btn" type="submit" class="w-12 h-12 bg-primary-container text-on-primary-container rounded-[20px] flex items-center justify-center hover:brightness-110 active:scale-95 transition-all ripple-container">
-                        <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1">send</span>
+                    <button id="send-btn" type="submit" class="w-10 h-10 md:w-12 md:h-12 mb-1 md:mb-0 mr-1 md:mr-0 bg-primary-container text-on-primary-container rounded-full md:rounded-[20px] flex items-center justify-center hover:brightness-110 active:scale-95 transition-all ripple-container shrink-0">
+                        <span class="material-symbols-outlined text-[18px] md:text-[24px]" style="font-variation-settings: 'FILL' 1">send</span>
                     </button>
                 </form>
             </div>

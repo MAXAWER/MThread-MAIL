@@ -199,7 +199,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const messaging = firebase.messaging();
             const permission = await Notification.requestPermission();
             if (permission === 'granted') {
-                const token = await messaging.getToken({ vapidKey: 'YOUR_VAPID_KEY_HERE' });
+                const token = await messaging.getToken({ vapidKey: 'BP_hWM1RFB245Rad_lsjHtMQTM5u0ybQbEhQ8DZTbcAh7PwXIubn6TtAt295pptU8LUYrC7qnf9vPrIjBcQk2kU' });
                 if (token) {
                     await db.collection('users').doc(currentUser.uid).set({ fcmToken: token }, { merge: true });
                 }
