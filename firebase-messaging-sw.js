@@ -2,8 +2,8 @@ importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js'
 importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js');
 importScripts('firebase-config.js');
 
-// firebaseConfig is defined in firebase-config.js
-firebase.initializeApp(firebaseConfig);
+// firebaseConfig is defined and initialized in firebase-config.js
+// We don't need to call initializeApp again here, firebase-config.js already does it!
 
 const messaging = firebase.messaging();
 

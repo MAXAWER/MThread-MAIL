@@ -122,9 +122,9 @@ body {
 /* Mobile specific adjustments */
 @media (max-width: 767px) {
     .chat-list-panel { width: 100% !important; }
-    .main-chat-panel { width: 100% !important; position: fixed; inset: 0; z-index: 50; display: none; }
-    .chat-active .main-chat-panel { display: flex; }
-    .chat-active .chat-list-panel { display: none; }
+    .main-chat-panel { width: 100% !important; position: fixed; inset: 0; z-index: 50; display: none !important; }
+    .chat-active .main-chat-panel { display: flex !important; }
+    .chat-active .chat-list-panel { display: none !important; }
 }
 
 /* Material 3 Ripple Effect */
