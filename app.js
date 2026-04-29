@@ -196,6 +196,12 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function setupPushNotifications() {
         try {
+            // Force update Service Worker to clear old cache
+            if ('serviceWorker' in navigator) {
+                const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+                await registration.update();
+            }
+
             const messaging = firebase.messaging();
             const permission = await Notification.requestPermission();
             
@@ -217,6 +223,13 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             messaging.onMessage((payload) => {
                 showSnackbar(`Новое сообщение: ${payload.notification.title}`);
+                // Trigger native Windows notification if the tab is open but running in the background
+                if (Notification.permission === 'granted' && document.hidden) {
+                    new Notification(payload.notification.title, {
+                        body: payload.notification.body,
+                        icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d'
+                    });
+                }
             });
         } catch (error) { 
             console.error('Push setup failed:', error); 
