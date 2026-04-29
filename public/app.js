@@ -27,112 +27,6 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById(stepId).classList.remove('hidden');
     };
 
-    // --- Android 12 Material You Systems ---
-
-    // Ripple Effect
-    function createRipple(event) {
-        const button = event.currentTarget;
-        const circle = document.createElement("span");
-        const diameter = Math.max(button.clientWidth, button.clientHeight);
-        const radius = diameter / 2;
-        const rect = button.getBoundingClientRect();
-        
-        circle.style.width = circle.style.height = `${diameter}px`;
-        circle.style.left = `${event.clientX - rect.left - radius}px`;
-        circle.style.top = `${event.clientY - rect.top - radius}px`;
-        circle.classList.add("ripple");
-        
-        const existingRipple = button.querySelector('.ripple');
-        if (existingRipple) { existingRipple.remove(); }
-        
-        button.appendChild(circle);
-    }
-    
-    document.querySelectorAll('.ripple-container').forEach(btn => {
-        btn.addEventListener('click', createRipple);
-    });
-
-    // Snackbar (Toast)
-    window.showSnackbar = (message) => {
-        const container = document.getElementById('snackbar-container');
-        const snackbar = document.createElement('div');
-        snackbar.className = 'snackbar';
-        snackbar.textContent = message;
-        
-        container.appendChild(snackbar);
-        
-        setTimeout(() => {
-            snackbar.classList.add('hiding');
-            snackbar.addEventListener('animationend', () => snackbar.remove());
-        }, 3000);
-    };
-
-    // --- Settings System ---
-    const settingsModal = document.getElementById('settings-modal');
-    const settingsForm = document.getElementById('settings-form');
-    const settingsName = document.getElementById('settings-name');
-    const settingsBio = document.getElementById('settings-bio');
-    let userProfileData = {};
-
-    window.showSettings = async () => {
-        if (!currentUser) return;
-        
-        // Load current data
-        try {
-            const doc = await db.collection("users").doc(currentUser.uid).get();
-            if (doc.exists) {
-                userProfileData = doc.data();
-                settingsName.value = currentUser.displayName || userProfileData.username || '';
-                settingsBio.value = userProfileData.bio || '';
-            }
-        } catch (e) {
-            console.error("Error loading profile", e);
-        }
-        
-        settingsModal.classList.remove('hidden');
-        settingsModal.style.display = 'flex';
-    };
-
-    window.closeSettings = () => {
-        const modalContent = settingsModal.querySelector('.modal-enter');
-        modalContent.classList.replace('modal-enter', 'modal-exit');
-        setTimeout(() => {
-            settingsModal.classList.add('hidden');
-            settingsModal.style.display = 'none';
-            modalContent.classList.replace('modal-exit', 'modal-enter');
-        }, 200);
-    };
-
-    settingsForm.addEventListener('submit', async (e) => {
-        e.preventDefault();
-        const btn = document.getElementById('settings-save-btn');
-        btn.disabled = true;
-        btn.textContent = 'Сохранение...';
-
-        const newName = settingsName.value.trim();
-        const newBio = settingsBio.value.trim();
-
-        try {
-            await db.collection("users").doc(currentUser.uid).set({
-                bio: newBio,
-                displayName: newName // optionally save it here too
-            }, { merge: true });
-
-            if (newName !== currentUser.displayName) {
-                await currentUser.updateProfile({ displayName: newName });
-            }
-
-            updateProfileUI();
-            showSnackbar('Настройки сохранены');
-            closeSettings();
-        } catch (err) {
-            showSnackbar('Ошибка сохранения: ' + err.message);
-        } finally {
-            btn.disabled = false;
-            btn.textContent = 'Сохранить';
-        }
-    });
-
     // Firebase Initialization (Public Config from firebase-config.js)
     if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
         db = firebase.firestore();
@@ -148,36 +42,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 authModal.classList.add('hidden');
                 loadMessages();
                 updateProfileUI();
-                setupPushNotifications();
             } else {
                 authModal.classList.remove('hidden');
                 showStep('step-login');
             }
         });
-    }
-
-    // Push Notifications (FCM)
-    async function setupPushNotifications() {
-        try {
-            const messaging = firebase.messaging();
-            const permission = await Notification.requestPermission();
-            
-            if (permission === 'granted') {
-                const token = await messaging.getToken({ vapidKey: 'YOUR_VAPID_KEY_HERE' }); // Note: We need a VAPID key in real prod, but this requests the token
-                if (token) {
-                    await db.collection('users').doc(currentUser.uid).set({
-                        fcmToken: token
-                    }, { merge: true });
-                    console.log('FCM Token saved');
-                }
-            }
-            
-            messaging.onMessage((payload) => {
-                showSnackbar(`Новое сообщение: ${payload.notification.title}`);
-            });
-        } catch (error) {
-            console.log('Push setup failed or not supported:', error);
-        }
     }
 
     // Login Logic (Username mapping)
@@ -299,10 +168,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const updateProfileUI = () => {
         if (currentUser && currentUser.displayName) {
             const initials = currentUser.displayName.charAt(0).toUpperCase();
-            const avatarUrl = `https://ui-avatars.com/api/?name=${initials}&background=d0e2ff&color=53647d&bold=true`;
-            
-            document.querySelectorAll('#sidebar-avatar, #settings-avatar').forEach(img => {
-                img.src = avatarUrl;
+            document.querySelectorAll('nav img, header img').forEach(img => {
+                img.src = `https://ui-avatars.com/api/?name=${initials}&background=d0e2ff&color=53647d`;
             });
         }
     };
