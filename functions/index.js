@@ -3,42 +3,48 @@ const admin = require("firebase-admin");
 admin.initializeApp();
 
 exports.sendPushNotification = functions.firestore
-  .document("messages/{messageId}")
+  .document("chats/{chatId}/messages/{messageId}")
   .onCreate(async (snap, context) => {
     const message = snap.data();
+    const chatId = context.params.chatId;
 
-    // 1. Get all users to send the notification to
-    // In a real app with groups/1-to-1 chats, you'd filter this.
-    // Here we send to everyone who has an fcmToken except the sender.
-    const usersSnapshot = await admin.firestore().collection("users").get();
-    const tokens = [];
-
-    usersSnapshot.forEach((doc) => {
-      const userData = doc.data();
-      if (userData.fcmToken && doc.id !== message.userId) {
-        tokens.push(userData.fcmToken);
-      }
-    });
-
-    if (tokens.length === 0) {
-      console.log("No tokens to send notifications to.");
-      return null;
-    }
-
-    // 2. Create the notification payload
-    const payload = {
-      notification: {
-        title: `Новое сообщение от ${message.userName}`,
-        body: message.text,
-      },
-    };
-
-    // 3. Send via FCM
     try {
-      const response = await admin.messaging().sendToDevice(tokens, payload);
+      // 1. Get the chat document to find participants
+      const chatDoc = await admin.firestore().collection("chats").doc(chatId).get();
+      if (!chatDoc.exists) return null;
+
+      const chatData = chatDoc.data();
+      const participants = chatData.participants || [];
+
+      // 2. Find the receiver (the user who is not the sender)
+      const receiverId = participants.find(id => id !== message.userId);
+      if (!receiverId) return null;
+
+      // 3. Get the receiver's FCM token
+      const userDoc = await admin.firestore().collection("users").doc(receiverId).get();
+      if (!userDoc.exists) return null;
+
+      const userData = userDoc.data();
+      const fcmToken = userData.fcmToken;
+
+      if (!fcmToken) {
+        console.log("No FCM token found for user:", receiverId);
+        return null;
+      }
+
+      // 4. Create the notification payload
+      const payload = {
+        notification: {
+          title: `Новое сообщение от ${message.userName}`,
+          body: message.text,
+        },
+      };
+
+      // 5. Send via FCM
+      const response = await admin.messaging().sendToDevice(fcmToken, payload);
       console.log("Successfully sent message:", response);
     } catch (error) {
-      console.log("Error sending message:", error);
+      console.error("Error sending message:", error);
     }
 
     return null;
