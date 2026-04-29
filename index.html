@@ -50,10 +50,10 @@
                     <span class="text-on-primary-container font-black text-xl">M</span>
                 </div>
             </div>
-            <div class="p-3 bg-primary-container/10 text-primary-container rounded-xl cursor-pointer ripple-container" onclick="document.getElementById('chat-list-container').scrollTo(0,0)">
-                <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1">chat</span>
+            <div id="nav-dm-btn" class="p-3 bg-primary-container/10 text-primary-container rounded-xl cursor-pointer ripple-container transition-all" onclick="switchTab('dm')">
+                <span class="material-symbols-outlined material-icon-filled">chat</span>
             </div>
-            <div class="p-3 text-on-surface-variant hover:text-white cursor-pointer ripple-container" onclick="showSnackbar('Группы появятся в следующем обновлении')"><span class="material-symbols-outlined">group</span></div>
+            <div id="nav-group-btn" class="p-3 text-on-surface-variant hover:bg-white/5 hover:text-white rounded-xl cursor-pointer ripple-container transition-all" onclick="switchTab('groups')"><span class="material-symbols-outlined">group</span></div>
             <div class="mt-auto flex flex-col gap-6 items-center">
                 <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-white/5 cursor-pointer ripple-container hover:brightness-110 transition-all" onclick="showSettings()"><img id="sidebar-avatar" src="https://ui-avatars.com/api/?name=Me&background=d0e2ff&color=53647d" alt=""></div>
             </div>
@@ -61,22 +61,20 @@
 
         <!-- 2. Chat List Panel -->
         <aside class="chat-list-panel flex flex-col w-full md:w-[350px] bg-surface-dim border-r border-white/5 shrink-0 h-full">
-            <div class="p-6 md:p-8 flex justify-between items-center">
-                <h2 class="text-2xl font-bold text-white">Чаты</h2>
+            <div class="p-5 md:p-6 flex justify-between items-center">
+                <h2 id="panel-title" class="text-2xl font-bold text-white">Чаты</h2>
+                <button id="create-group-fab" class="hidden p-2 bg-primary-container/10 text-primary-container rounded-xl hover:bg-primary-container/20 transition-all ripple-container" onclick="openCreateGroupModal()">
+                    <span class="material-symbols-outlined text-[22px]">group_add</span>
+                </button>
             </div>
-            <div class="px-6 mb-2">
+            <div class="px-6 mb-3">
                 <div class="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50 transition-all relative">
                     <span class="material-symbols-outlined text-on-surface-variant/50 text-sm">search</span>
                     <input type="text" id="user-search-input" placeholder="Поиск по логину..." class="bg-transparent border-none focus:ring-0 text-sm text-white w-full outline-none">
-                    
                     <!-- Search Results Dropdown -->
                     <div id="user-search-results" class="absolute left-0 right-0 top-full mt-2 bg-surface-container border border-white/10 rounded-xl shadow-2xl z-50 hidden flex-col max-h-60 overflow-y-auto custom-scroll">
                     </div>
                 </div>
-            </div>
-            <div class="px-6 flex gap-6 border-b border-white/5 mb-2">
-                <button class="text-primary-container text-sm font-bold pb-3 border-b-2 border-primary-container">Личные</button>
-                <button class="text-on-surface-variant text-sm font-bold pb-3 border-b-2 border-transparent hover:text-white transition-all" onclick="showSnackbar('Раздел групп загружается...')">Группы</button>
             </div>
             <div id="chat-list-container" class="flex-1 overflow-y-auto custom-scroll">
                 <!-- Chat list will be injected here -->
@@ -96,8 +94,8 @@
             </div>
             <!-- Mobile Bottom Nav -->
             <div class="md:hidden flex justify-around p-4 pb-safe bg-surface border-t border-white/5 mt-auto shrink-0 z-50">
-                <button class="text-primary-container flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="document.getElementById('chat-list-container').scrollTo(0,0)"><span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1">chat</span><span class="text-[10px] uppercase font-bold">Чаты</span></button>
-                <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="showSnackbar('Группы появятся в следующем обновлении')"><span class="material-symbols-outlined">group</span><span class="text-[10px] uppercase font-bold">Группы</span></button>
+                <button id="mob-nav-dm" class="text-primary-container flex flex-col items-center gap-1 ripple-container p-2 rounded-xl transition-all" onclick="switchTab('dm')"><span class="material-symbols-outlined material-icon-filled">chat</span><span class="text-[10px] uppercase font-bold">Чаты</span></button>
+                <button id="mob-nav-groups" class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl transition-all" onclick="switchTab('groups')"><span class="material-symbols-outlined">group</span><span class="text-[10px] uppercase font-bold">Группы</span></button>
                 <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="showSettings()"><span class="material-symbols-outlined">person</span><span class="text-[10px] uppercase font-bold">Профиль</span></button>
             </div>
         </aside>
@@ -132,15 +130,15 @@
             <!-- Input -->
             <div class="p-2 pb-safe md:p-8 bg-gradient-to-t from-black via-black to-transparent shrink-0">
                 <form id="message-form" class="max-w-5xl mx-auto flex items-end gap-1 md:gap-4 bg-surface-container/50 md:bg-surface-container/50 bg-black md:border border-white/5 p-1 md:p-2 rounded-[24px] md:rounded-[28px] focus-within:border-primary-container/30 transition-all shadow-2xl border-t border-white/10 md:border-t-0 relative">
-                    <input type="file" id="chat-image-input" accept="image/*" class="hidden">
+                    <input type="file" id="chat-image-input" accept="image/*" class="hidden" title="Прикрепить изображение" placeholder="Прикрепить изображение" aria-label="Прикрепить изображение">
                     <button type="button" class="p-2 md:p-3 text-on-surface-variant hover:text-white ripple-container rounded-full shrink-0" onclick="document.getElementById('chat-image-input').click()">
                         <span class="material-symbols-outlined text-[20px] md:text-[24px]">add_circle</span>
                     </button>
                     <div class="flex-1 py-2 md:py-3 pl-2">
-                        <textarea id="message-input" rows="1" placeholder="Сообщение..." class="w-full bg-transparent border-none focus:ring-0 text-white placeholder-on-surface-variant/30 outline-none resize-none custom-scroll text-[15px] md:text-base leading-snug"></textarea>
+                        <textarea id="message-input" rows="1" placeholder="Сообщение..." title="Введите сообщение" aria-label="Введите сообщение" class="w-full bg-transparent border-none focus:ring-0 text-white placeholder-on-surface-variant/30 outline-none resize-none custom-scroll text-[15px] md:text-base leading-snug"></textarea>
                     </div>
                     <button id="send-btn" type="submit" class="w-10 h-10 md:w-12 md:h-12 mb-1 md:mb-0 mr-1 md:mr-0 bg-primary-container text-on-primary-container rounded-full md:rounded-[20px] flex items-center justify-center hover:brightness-110 active:scale-95 transition-all ripple-container shrink-0">
-                        <span class="material-symbols-outlined text-[18px] md:text-[24px]" style="font-variation-settings: 'FILL' 1">send</span>
+                        <span class="material-symbols-outlined text-[18px] md:text-[24px] material-icon-filled">send</span>
                     </button>
                 </form>
             </div>
@@ -193,40 +191,36 @@
         </div>
     </div>
 
-    <!-- Settings Modal -->
-    <div id="settings-modal" class="fixed inset-0 bg-black/90 backdrop-blur-xl z-[250] items-center justify-center hidden">
-        <div class="bg-surface p-8 rounded-[32px] md:rounded-[48px] border border-white/10 max-w-md w-full mx-4 shadow-2xl modal-enter relative">
-            <button onclick="closeSettings()" class="absolute top-6 right-6 p-2 text-on-surface-variant hover:text-white ripple-container rounded-full">
-                <span class="material-symbols-outlined">close</span>
-            </button>
+
+    <div id="settings-modal" class="fixed inset-0 bg-black/80 backdrop-blur-xl z-[300] hidden items-center justify-center p-4">
+        <div class="bg-surface rounded-[32px] border border-white/10 max-w-md w-full shadow-2xl p-8 relative">
+            <button onclick="document.getElementById('settings-modal').classList.add('hidden')" class="absolute top-5 right-5 p-2 text-on-surface-variant hover:text-white rounded-full"><span class="material-symbols-outlined">close</span></button>
+            <h2 class="text-2xl font-black text-white mb-6">Профиль</h2>
             
-            <div class="text-center mb-8">
-                <h2 class="text-2xl font-black text-white mb-2">Настройки Профиля</h2>
-                <div class="relative w-24 h-24 mx-auto mt-6 group cursor-pointer" onclick="document.getElementById('avatar-upload-input').click()">
-                    <img id="settings-avatar" src="https://ui-avatars.com/api/?name=U" class="w-24 h-24 rounded-full border-4 border-surface-container object-cover transition-all group-hover:brightness-50">
-                    <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
-                        <span class="material-symbols-outlined text-white text-3xl">add_a_photo</span>
-                    </div>
-                    <button class="absolute bottom-0 right-0 bg-primary-container text-on-primary-container w-8 h-8 rounded-full flex items-center justify-center ripple-container pointer-events-none">
-                        <span class="material-symbols-outlined text-[16px]">edit</span>
-                    </button>
-                    <input type="file" id="avatar-upload-input" accept="image/*" class="hidden">
-                </div>
-                <div id="upload-progress" class="text-[10px] text-primary-container mt-2 font-bold hidden">Загрузка...</div>
-            </div>
-            
-            <form id="settings-form" class="space-y-4">
-                <div class="space-y-1">
-                    <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider pl-4">Отображаемое имя</label>
-                    <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50">
-                        <input id="settings-name" type="text" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none" required>
+            <form id="settings-form" class="space-y-6">
+                <div class="flex justify-center">
+                    <div class="relative group cursor-pointer" onclick="document.getElementById('avatar-upload-input').click()">
+                        <img id="settings-avatar-preview" src="https://ui-avatars.com/api/?name=User&background=d0e2ff&color=53647d" class="w-24 h-24 rounded-[32px] object-cover border-4 border-surface-container" alt="Аватар профиля">
+                        <div class="absolute inset-0 bg-black/50 rounded-[32px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+                            <span class="material-symbols-outlined text-white">photo_camera</span>
+                        </div>
+                        <input type="file" id="avatar-upload-input" accept="image/*" class="hidden" title="Загрузить аватар" placeholder="Загрузить аватар" aria-label="Загрузить аватар">
                     </div>
                 </div>
                 
-                <div class="space-y-1">
-                    <label class="text-xs font-bold text-on-surface-variant uppercase tracking-wider pl-4">О себе (Статус)</label>
+                <div id="upload-progress" class="hidden flex-col gap-2">
+                    <div class="text-xs text-on-surface-variant text-center">Загрузка...</div>
+                    <div class="w-full bg-white/10 rounded-full h-1"><div class="bg-primary-container h-1 rounded-full w-1/2 animate-pulse"></div></div>
+                </div>
+
+                <div class="space-y-4">
                     <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50">
-                        <input id="settings-bio" type="text" placeholder="Напишите что-нибудь о себе..." class="bg-transparent border-none focus:ring-0 text-white w-full outline-none">
+                        <label class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider mb-1 block">Отображаемое имя</label>
+                        <input id="settings-name" type="text" title="Отображаемое имя" aria-label="Отображаемое имя" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none font-medium">
+                    </div>
+                    <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50">
+                        <label class="text-[10px] text-on-surface-variant uppercase font-bold tracking-wider mb-1 block">О себе</label>
+                        <input id="settings-bio" type="text" placeholder="Напишите что-нибудь..." title="О себе" aria-label="О себе" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none">
                     </div>
                 </div>
                 
@@ -240,6 +234,28 @@
 
     <!-- Snackbar Container -->
     <div id="snackbar-container"></div>
+
+    <!-- Create Group Modal -->
+    <div id="create-group-modal" class="fixed inset-0 bg-black/80 backdrop-blur-xl z-[300] hidden items-center justify-center p-4">
+        <div class="bg-surface rounded-[32px] border border-white/10 max-w-md w-full shadow-2xl p-8 relative">
+            <button onclick="closeCreateGroupModal()" class="absolute top-5 right-5 p-2 text-on-surface-variant hover:text-white rounded-full"><span class="material-symbols-outlined">close</span></button>
+            <h2 class="text-2xl font-black text-white mb-6">Новая группа</h2>
+            <div class="space-y-4">
+                <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50">
+                    <input id="group-name-input" type="text" placeholder="Название группы..." class="bg-transparent border-none focus:ring-0 text-white w-full outline-none">
+                </div>
+                <div class="relative">
+                    <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50 flex items-center gap-2">
+                        <span class="material-symbols-outlined text-on-surface-variant/50 text-sm">person_search</span>
+                        <input id="group-member-search" type="text" placeholder="Найти участников..." class="bg-transparent border-none focus:ring-0 text-white w-full outline-none text-sm">
+                    </div>
+                    <div id="group-member-results" class="absolute left-0 right-0 top-full mt-1 bg-surface-container border border-white/10 rounded-xl shadow-2xl z-50 hidden flex-col max-h-48 overflow-y-auto custom-scroll"></div>
+                </div>
+                <div id="group-members-list" class="flex flex-wrap gap-2 min-h-[40px]"></div>
+                <button id="create-group-btn" class="w-full bg-primary-container text-on-primary-container py-4 rounded-[20px] font-bold hover:brightness-110 active:scale-95 transition-all ripple-container">Создать группу</button>
+            </div>
+        </div>
+    </div>
 
     <!-- Message Context Menu -->
     <div id="message-context-menu" class="fixed hidden bg-surface-container border border-white/10 rounded-xl shadow-2xl z-[300] min-w-[160px] overflow-hidden flex-col">
