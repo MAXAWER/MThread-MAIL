@@ -54,9 +54,7 @@
                 <span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1">chat</span>
             </div>
             <div class="p-3 text-on-surface-variant hover:text-white cursor-pointer ripple-container" onclick="showSnackbar('Группы появятся в следующем обновлении')"><span class="material-symbols-outlined">group</span></div>
-            <div class="p-3 text-on-surface-variant hover:text-white cursor-pointer ripple-container" onclick="showSnackbar('Звонки скоро будут доступны')"><span class="material-symbols-outlined">call</span></div>
             <div class="mt-auto flex flex-col gap-6 items-center">
-                <div class="p-3 text-on-surface-variant hover:text-white cursor-pointer ripple-container" onclick="showSettings()"><span class="material-symbols-outlined">settings</span></div>
                 <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-white/5 cursor-pointer ripple-container hover:brightness-110 transition-all" onclick="showSettings()"><img id="sidebar-avatar" src="https://ui-avatars.com/api/?name=Me&background=d0e2ff&color=53647d" alt=""></div>
             </div>
         </nav>
@@ -67,13 +65,17 @@
                 <h2 class="text-2xl font-bold text-white">Чаты</h2>
                 <button class="md:hidden p-2 text-on-surface-variant"><span class="material-symbols-outlined">settings</span></button>
             </div>
-            <div class="px-6 mb-4">
-                <div class="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/5">
+            <div class="px-6 mb-4 relative">
+                <div class="flex items-center gap-3 bg-white/5 rounded-xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50 transition-all">
                     <span class="material-symbols-outlined text-on-surface-variant/50 text-sm">search</span>
-                    <input type="text" placeholder="Поиск..." class="bg-transparent border-none focus:ring-0 text-sm text-white w-full outline-none">
+                    <input type="text" id="user-search-input" placeholder="Поиск по логину..." class="bg-transparent border-none focus:ring-0 text-sm text-white w-full outline-none">
+                </div>
+                <!-- Search Results Dropdown -->
+                <div id="user-search-results" class="absolute left-6 right-6 top-14 bg-surface-container border border-white/10 rounded-xl shadow-2xl z-50 hidden flex-col max-h-60 overflow-y-auto custom-scroll">
                 </div>
             </div>
-            <div class="flex-1 overflow-y-auto custom-scroll">
+            <div id="chat-list-container" class="flex-1 overflow-y-auto custom-scroll">
+                <!-- Chat list will be injected here -->
                 <div class="chat-item-btn p-4 md:px-6 flex gap-4 cursor-pointer hover:bg-white/5 transition-all" onclick="toggleMobileChat(true)">
                     <div class="relative shrink-0">
                         <img src="https://ui-avatars.com/api/?name=Support&background=cac2e2&color=312d46" class="w-12 h-12 rounded-full" alt="">
@@ -92,7 +94,7 @@
             <div class="md:hidden flex justify-around p-4 bg-surface border-t border-white/5 mt-auto">
                 <button class="text-primary-container flex flex-col items-center gap-1 ripple-container p-2 rounded-xl"><span class="material-symbols-outlined" style="font-variation-settings: 'FILL' 1">chat</span><span class="text-[10px] uppercase font-bold">Чаты</span></button>
                 <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="showSnackbar('Группы появятся в следующем обновлении')"><span class="material-symbols-outlined">group</span><span class="text-[10px] uppercase font-bold">Группы</span></button>
-                <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="showSettings()"><span class="material-symbols-outlined">settings</span><span class="text-[10px] uppercase font-bold">Опции</span></button>
+                <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="showSettings()"><span class="material-symbols-outlined">person</span><span class="text-[10px] uppercase font-bold">Профиль</span></button>
             </div>
         </aside>
 
@@ -103,8 +105,7 @@
                 <div class="flex items-center gap-4">
                     <button class="md:hidden p-2 text-on-surface-variant" onclick="toggleMobileChat(false)"><span class="material-symbols-outlined">arrow_back</span></button>
                     <div class="flex items-center gap-3">
-                        <h3 class="text-lg font-bold text-white">MThread Support</h3>
-                        <span class="hidden md:inline text-[10px] text-green-500 font-bold bg-green-500/10 px-2 py-0.5 rounded-full uppercase tracking-tighter">Online</span>
+                        <h3 id="active-chat-name" class="text-lg font-bold text-white">Выберите чат</h3>
                     </div>
                 </div>
                 <div class="flex gap-1">
@@ -188,12 +189,17 @@
             
             <div class="text-center mb-8">
                 <h2 class="text-2xl font-black text-white mb-2">Настройки Профиля</h2>
-                <div class="relative w-24 h-24 mx-auto mt-6">
-                    <img id="settings-avatar" src="https://ui-avatars.com/api/?name=U" class="w-24 h-24 rounded-full border-4 border-surface-container object-cover">
-                    <button class="absolute bottom-0 right-0 bg-primary-container text-on-primary-container w-8 h-8 rounded-full flex items-center justify-center ripple-container" onclick="showSnackbar('Изменение фото в разработке')">
+                <div class="relative w-24 h-24 mx-auto mt-6 group cursor-pointer" onclick="document.getElementById('avatar-upload-input').click()">
+                    <img id="settings-avatar" src="https://ui-avatars.com/api/?name=U" class="w-24 h-24 rounded-full border-4 border-surface-container object-cover transition-all group-hover:brightness-50">
+                    <div class="absolute inset-0 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
+                        <span class="material-symbols-outlined text-white text-3xl">add_a_photo</span>
+                    </div>
+                    <button class="absolute bottom-0 right-0 bg-primary-container text-on-primary-container w-8 h-8 rounded-full flex items-center justify-center ripple-container pointer-events-none">
                         <span class="material-symbols-outlined text-[16px]">edit</span>
                     </button>
+                    <input type="file" id="avatar-upload-input" accept="image/*" class="hidden">
                 </div>
+                <div id="upload-progress" class="text-[10px] text-primary-container mt-2 font-bold hidden">Загрузка...</div>
             </div>
             
             <form id="settings-form" class="space-y-4">
@@ -225,6 +231,7 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-storage-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js"></script>
     <script src="firebase-config.js"></script>
     <script src="app.js"></script>
