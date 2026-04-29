@@ -198,16 +198,30 @@ document.addEventListener('DOMContentLoaded', () => {
         try {
             const messaging = firebase.messaging();
             const permission = await Notification.requestPermission();
+            
+            if (permission === 'denied') {
+                showSnackbar('Уведомления заблокированы. Нажмите на 🔒 слева от адреса сайта!');
+                return;
+            }
+            
             if (permission === 'granted') {
-                const token = await messaging.getToken({ vapidKey: 'BP_hWM1RFB245Rad_lsjHtMQTM5u0ybQbEhQ8DZTbcAh7PwXIubn6TtAt295pptU8LUYrC7qnf9vPrIjBcQk2kU' });
-                if (token) {
-                    await db.collection('users').doc(currentUser.uid).set({ fcmToken: token }, { merge: true });
+                try {
+                    const token = await messaging.getToken({ vapidKey: 'BP_hWM1RFB245Rad_lsjHtMQTM5u0ybQbEhQ8DZTbcAh7PwXIubn6TtAt295pptU8LUYrC7qnf9vPrIjBcQk2kU' });
+                    if (token) {
+                        await db.collection('users').doc(currentUser.uid).set({ fcmToken: token }, { merge: true });
+                    }
+                } catch (tokenError) {
+                    console.error('Token error:', tokenError);
+                    showSnackbar('Ошибка токена: ' + tokenError.message);
                 }
             }
             messaging.onMessage((payload) => {
                 showSnackbar(`Новое сообщение: ${payload.notification.title}`);
             });
-        } catch (error) { console.log('Push setup failed:', error); }
+        } catch (error) { 
+            console.error('Push setup failed:', error); 
+            showSnackbar('Ошибка уведомлений: ' + error.message);
+        }
     }
 
     // --- Search Logic ---
@@ -283,9 +297,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function openChat(chatId, targetUid, targetData) {
         activeChatId = chatId;
-        activeChatUser = { uid: targetUid, ...targetData };
+        activeChatUser = { uid: targetUid, ...(targetData || {}) };
         
-        activeChatName.textContent = targetData.username || 'Чат';
+        activeChatName.textContent = (targetData && targetData.username) ? targetData.username : 'Чат';
         
         if (messagesUnsubscribe) messagesUnsubscribe();
         
@@ -333,7 +347,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
                 chats.forEach(chat => {
                     const targetUid = chat.participants.find(id => id !== currentUser.uid);
-                    const targetData = chat.participantsData ? chat.participantsData[targetUid] : { username: 'User' };
+                    const targetData = (chat.participantsData && chat.participantsData[targetUid]) ? chat.participantsData[targetUid] : { username: 'User' };
                     
                     const time = chat.lastUpdated ? new Date(chat.lastUpdated.toDate()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
                     
