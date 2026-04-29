@@ -138,12 +138,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     window.closeSettings = () => {
-        const modalContent = settingsModal.querySelector('.modal-enter');
-        modalContent.classList.replace('modal-enter', 'modal-exit');
+        const modalContent = settingsModal.querySelector('.bg-surface');
+        if (modalContent) {
+            modalContent.style.transform = 'scale(0.95)';
+            modalContent.style.opacity = '0';
+        }
         setTimeout(() => {
             settingsModal.classList.add('hidden');
             settingsModal.style.display = 'none';
-            modalContent.classList.replace('modal-exit', 'modal-enter');
+            if (modalContent) {
+                modalContent.style.transform = '';
+                modalContent.style.opacity = '';
+            }
         }, 200);
     };
 
@@ -387,6 +393,12 @@ document.addEventListener('DOMContentLoaded', () => {
         const activeChatStatus = document.getElementById('active-chat-status');
         let currentStatus = isGroup ? 'Групповой чат' : 'Офлайн';
         let currentTyping = false;
+
+        const groupInfoBtn = document.getElementById('group-info-btn');
+        if (groupInfoBtn) {
+            if (isGroup) groupInfoBtn.classList.remove('hidden');
+            else groupInfoBtn.classList.add('hidden');
+        }
 
         const updateStatusUI = () => {
             activeChatStatus.classList.remove('hidden');
@@ -880,7 +892,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const initials = name.charAt(0).toUpperCase();
             const avatarUrl = userProfileData.avatarUrl || `https://ui-avatars.com/api/?name=${initials}&background=d0e2ff&color=53647d&bold=true`;
             
-            document.querySelectorAll('#sidebar-avatar, #settings-avatar').forEach(img => {
+            document.querySelectorAll('#sidebar-avatar, #settings-avatar-preview').forEach(img => {
                 img.src = avatarUrl;
             });
         }
@@ -990,13 +1002,14 @@ document.addEventListener('DOMContentLoaded', () => {
         createGroupBtn.textContent = 'Создание...';
         
         try {
+            const timestamp = firebase.firestore.FieldValue.serverTimestamp();
             const groupRef = db.collection('groups').doc();
             await groupRef.set({
                 name: name,
                 participants: selectedGroupMembers,
                 createdBy: currentUser.uid,
-                createdAt: firebase.firestore.FieldValue.serverTimestamp(),
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp(),
+                createdAt: timestamp,
+                lastUpdated: timestamp,
                 lastMessage: 'Группа создана'
             });
             
@@ -1083,7 +1096,133 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById(stepId).classList.remove('hidden');
     };
 
-    // Auth flows (Login/Register)
+    // --- Group Admin Management ---
+    const groupSettingsModal = document.getElementById('group-settings-modal');
+    const groupEditName = document.getElementById('group-edit-name');
+    const groupEditMembers = document.getElementById('group-edit-members');
+    const groupAddMemberSearch = document.getElementById('group-add-member-search');
+    const groupAddMemberResults = document.getElementById('group-add-member-results');
+    
+    let activeGroupData = null;
+
+    window.openGroupSettings = async () => {
+        if (!activeChatId || !activeChatUser.isGroup) return;
+        try {
+            const doc = await db.collection('groups').doc(activeChatId).get();
+            if (!doc.exists) return;
+            activeGroupData = { id: doc.id, ...doc.data() };
+            
+            groupEditName.value = activeGroupData.name;
+            renderGroupEditMembers();
+            
+            groupSettingsModal.classList.remove('hidden');
+            groupSettingsModal.style.display = 'flex';
+        } catch (e) { showSnackbar('Ошибка: ' + e.message); }
+    };
+
+    window.closeGroupSettings = () => {
+        groupSettingsModal.classList.add('hidden');
+        groupSettingsModal.style.display = 'none';
+    };
+
+    async function renderGroupEditMembers() {
+        groupEditMembers.innerHTML = '';
+        const isAdmin = activeGroupData.createdBy === currentUser.uid;
+        
+        for (const uid of activeGroupData.participants) {
+            const userDoc = await db.collection('users').doc(uid).get();
+            const userData = userDoc.data() || { username: 'Пользователь' };
+            
+            const div = document.createElement('div');
+            div.className = 'flex items-center justify-between p-2 bg-white/5 rounded-xl';
+            div.innerHTML = `
+                <div class="flex items-center gap-3">
+                    <div class="w-8 h-8 rounded-full bg-primary-container/20 flex items-center justify-center text-[10px] text-primary-container font-bold">
+                        ${userData.username.charAt(0).toUpperCase()}
+                    </div>
+                    <span class="text-sm text-white">${userData.username} ${uid === activeGroupData.createdBy ? '<span class="text-[10px] text-primary-container font-bold ml-1">(Админ)</span>' : ''}</span>
+                </div>
+                ${(isAdmin && uid !== currentUser.uid) ? `<button onclick="removeMemberFromGroup('${uid}')" class="p-1 text-red-400 hover:bg-red-400/10 rounded-lg transition-all"><span class="material-symbols-outlined text-[18px]">person_remove</span></button>` : ''}
+            `;
+            groupEditMembers.appendChild(div);
+        }
+    }
+
+    window.removeMemberFromGroup = async (uid) => {
+        if (!confirm('Удалить участника из группы?')) return;
+        try {
+            await db.collection('groups').doc(activeChatId).update({
+                participants: firebase.firestore.FieldValue.arrayRemove(uid)
+            });
+            activeGroupData.participants = activeGroupData.participants.filter(id => id !== uid);
+            renderGroupEditMembers();
+            showSnackbar('Участник удален');
+        } catch (e) { showSnackbar('Ошибка: ' + e.message); }
+    };
+
+    groupAddMemberSearch.addEventListener('input', async (e) => {
+        const val = e.target.value.trim().toLowerCase();
+        if (val.length < 2) {
+            groupAddMemberResults.classList.add('hidden');
+            return;
+        }
+        try {
+            const snapshot = await db.collection("usernames")
+                .orderBy(firebase.firestore.FieldPath.documentId())
+                .startAt(val).endAt(val + '\uf8ff').limit(5).get();
+                
+            groupAddMemberResults.innerHTML = '';
+            let found = false;
+            snapshot.forEach(doc => {
+                const data = doc.data();
+                if (activeGroupData.participants.includes(data.uid)) return;
+                
+                found = true;
+                const div = document.createElement('div');
+                div.className = 'p-3 hover:bg-white/5 cursor-pointer text-sm text-white border-b border-white/5 last:border-0';
+                div.textContent = doc.id;
+                div.onclick = () => addMemberToGroup(data.uid, doc.id);
+                groupAddMemberResults.appendChild(div);
+            });
+            groupAddMemberResults.classList.toggle('hidden', !found);
+        } catch(e) {}
+    });
+
+    async function addMemberToGroup(uid, username) {
+        try {
+            await db.collection('groups').doc(activeChatId).update({
+                participants: firebase.firestore.FieldValue.arrayUnion(uid)
+            });
+            activeGroupData.participants.push(uid);
+            renderGroupEditMembers();
+            groupAddMemberSearch.value = '';
+            groupAddMemberResults.classList.add('hidden');
+            showSnackbar(`Добавлен: ${username}`);
+        } catch (e) { showSnackbar('Ошибка: ' + e.message); }
+    }
+
+    window.saveGroupSettings = async () => {
+        const newName = groupEditName.value.trim();
+        if (!newName) return;
+        const btn = document.getElementById('group-save-btn');
+        btn.disabled = true; btn.textContent = 'Сохранение...';
+        try {
+            await db.collection('groups').doc(activeChatId).update({ name: newName });
+            activeChatUser.username = newName;
+            document.getElementById('active-chat-name').textContent = newName;
+            showSnackbar('Настройки группы сохранены');
+            closeGroupSettings();
+        } catch (e) { showSnackbar('Ошибка: ' + e.message); }
+        btn.disabled = false; btn.textContent = 'Сохранить';
+    };
+
+    window.deleteEntireGroupFromSettings = () => {
+        if (confirm('ВНИМАНИЕ: Это полностью удалит группу и все сообщения для ВСЕХ участников. Продолжить?')) {
+            deleteEntireChat(activeChatId, true);
+            closeGroupSettings();
+        }
+    };
+
     loginBtn.addEventListener('click', async () => {
         const username = loginUser.value.trim().toLowerCase();
         const pass = loginPass.value.trim();
