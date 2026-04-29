@@ -32,9 +32,9 @@ exports.sendPushNotification = functions.firestore
         return null;
       }
 
-      // 4. Create the notification payload
+      // 4. Create the notification payload (Use DATA to bypass Firebase auto-interception)
       const payload = {
-        notification: {
+        data: {
           title: `Новое сообщение от ${message.userName}`,
           body: message.text,
         },

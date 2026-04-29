@@ -9,9 +9,9 @@ const messaging = firebase.messaging();
 
 messaging.onBackgroundMessage((payload) => {
   console.log('[firebase-messaging-sw.js] Received background message ', payload);
-  const notificationTitle = payload.notification.title;
+  const notificationTitle = payload.data ? payload.data.title : (payload.notification ? payload.notification.title : 'Новое сообщение');
   const notificationOptions = {
-    body: payload.notification.body,
+    body: payload.data ? payload.data.body : (payload.notification ? payload.notification.body : ''),
     icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d'
   };
 

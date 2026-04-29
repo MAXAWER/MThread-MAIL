@@ -22,6 +22,9 @@ document.addEventListener('DOMContentLoaded', () => {
 
     const searchInput = document.getElementById('user-search-input');
     const searchResults = document.getElementById('user-search-results');
+    const contextMenu = document.getElementById('message-context-menu');
+    const ctxEditBtn = document.getElementById('ctx-btn-edit');
+    const ctxDeleteBtn = document.getElementById('ctx-btn-delete');
 
     let currentUser = null;
     let db = null;
@@ -222,11 +225,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
             messaging.onMessage((payload) => {
-                showSnackbar(`Новое сообщение: ${payload.notification.title}`);
+                const title = payload.data ? payload.data.title : (payload.notification ? payload.notification.title : 'Новое сообщение');
+                const body = payload.data ? payload.data.body : (payload.notification ? payload.notification.body : '');
+                
+                showSnackbar(`Новое сообщение: ${title}`);
                 // Trigger native Windows notification if the tab is open but running in the background
                 if (Notification.permission === 'granted' && document.hidden) {
-                    new Notification(payload.notification.title, {
-                        body: payload.notification.body,
+                    new Notification(title, {
+                        body: body,
                         icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d'
                     });
                 }
@@ -333,7 +339,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     return;
                 }
                 
-                snapshot.forEach(doc => renderMessage(doc.data()));
+                snapshot.forEach(doc => renderMessage(doc.id, doc.data()));
                 messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
             });
     }
@@ -388,7 +394,60 @@ document.addEventListener('DOMContentLoaded', () => {
             });
     }
 
-    const renderMessage = (msg) => {
+    let contextTargetId = null;
+    let contextTargetText = null;
+
+    function showContextMenu(x, y, msgId, currentText) {
+        contextTargetId = msgId;
+        contextTargetText = currentText;
+        contextMenu.classList.remove('hidden');
+        contextMenu.classList.add('flex');
+        
+        // Ensure menu doesn't go off screen
+        let left = x;
+        let top = y;
+        
+        contextMenu.style.left = `${left}px`;
+        contextMenu.style.top = `${top}px`;
+        
+        const rect = contextMenu.getBoundingClientRect();
+        if (rect.right > window.innerWidth) contextMenu.style.left = `${window.innerWidth - rect.width - 10}px`;
+        if (rect.bottom > window.innerHeight) contextMenu.style.top = `${window.innerHeight - rect.height - 10}px`;
+    }
+
+    document.addEventListener('click', (e) => {
+        if (!contextMenu.contains(e.target)) {
+            contextMenu.classList.add('hidden');
+            contextMenu.classList.remove('flex');
+        }
+    });
+
+    ctxDeleteBtn.addEventListener('click', async () => {
+        contextMenu.classList.add('hidden');
+        contextMenu.classList.remove('flex');
+        if (!contextTargetId || !activeChatId) return;
+        try {
+            await db.collection('chats').doc(activeChatId).collection('messages').doc(contextTargetId).delete();
+        } catch (e) {
+            showSnackbar('Ошибка удаления: ' + e.message);
+        }
+    });
+
+    ctxEditBtn.addEventListener('click', () => {
+        contextMenu.classList.add('hidden');
+        contextMenu.classList.remove('flex');
+        if (!contextTargetId || !activeChatId) return;
+        
+        const newText = prompt("Редактировать сообщение:", contextTargetText);
+        if (newText && newText.trim() !== "" && newText !== contextTargetText) {
+            db.collection('chats').doc(activeChatId).collection('messages').doc(contextTargetId).update({
+                text: newText.trim(),
+                edited: true
+            }).catch(e => showSnackbar('Ошибка: ' + e.message));
+        }
+    });
+
+    const renderMessage = (docId, msg) => {
         const isMe = msg.userId === currentUser.uid;
         const msgDiv = document.createElement('div');
         msgDiv.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} gap-1 max-w-[85%] md:max-w-[70%] ${isMe ? 'self-end' : 'self-start'} animate-msg`;
@@ -396,14 +455,31 @@ document.addEventListener('DOMContentLoaded', () => {
         const time = msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
         
         msgDiv.innerHTML = `
-            <div class="${isMe ? 'bg-primary-container text-on-primary-container rounded-[24px] rounded-br-sm' : 'bg-surface-container text-white rounded-[24px] rounded-bl-sm'} p-4 shadow-lg">
+            <div class="msg-bubble cursor-pointer ${isMe ? 'bg-primary-container text-on-primary-container rounded-[24px] rounded-br-sm' : 'bg-surface-container text-white rounded-[24px] rounded-bl-sm'} p-4 shadow-lg transition-all active:scale-95">
                 <p class="text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap">${escapeHtml(msg.text)}</p>
+                ${msg.edited ? '<span class="text-[10px] opacity-50 block mt-1">(изменено)</span>' : ''}
             </div>
             <div class="flex items-center gap-1 text-[10px] text-on-surface-variant/40 px-2 mt-1">
                 <span>${time}</span>
                 ${isMe ? '<span class="material-symbols-outlined text-[14px] text-blue-400">done_all</span>' : ''}
             </div>
         `;
+
+        if (isMe) {
+            const bubble = msgDiv.querySelector('.msg-bubble');
+            // Desktop right click
+            bubble.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                showContextMenu(e.clientX, e.clientY, docId, msg.text);
+            });
+            // Mobile tap
+            bubble.addEventListener('click', (e) => {
+                if (window.innerWidth <= 767) {
+                    showContextMenu(e.clientX, e.clientY, docId, msg.text);
+                }
+            });
+        }
+
         messagesContainer.appendChild(msgDiv);
     };
 
