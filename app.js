@@ -403,21 +403,71 @@ document.addEventListener('DOMContentLoaded', () => {
             .orderBy('timestamp', 'asc')
             .limit(100)
             .onSnapshot(snapshot => {
-                messagesContainer.innerHTML = '';
-                if(snapshot.empty) {
-                    messagesContainer.innerHTML = '<div class="flex-1 flex items-center justify-center text-on-surface-variant text-sm">Здесь пока нет сообщений. Напишите первым!</div>';
+                if (isFirstLoad && snapshot.empty) {
+                    messagesContainer.innerHTML = '<div id="empty-chat-msg" class="flex-1 flex items-center justify-center text-on-surface-variant text-sm">Здесь пока нет сообщений. Напишите первым!</div>';
+                    isFirstLoad = false;
                     return;
                 }
                 
-                snapshot.forEach(doc => renderMessage(doc.id, doc.data()));
+                const emptyMsg = document.getElementById('empty-chat-msg');
+                if (emptyMsg) emptyMsg.remove();
+                
+                if (isFirstLoad) {
+                    messagesContainer.innerHTML = ''; // Clear loading state
+                }
+
+                let addedAny = false;
+                
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        renderMessage(change.doc.id, change.doc.data());
+                        addedAny = true;
+                    }
+                    if (change.type === 'modified') {
+                        const existingMsg = document.getElementById(`msg-${change.doc.id}`);
+                        if (existingMsg) {
+                            const newText = escapeHtml(change.doc.data().text);
+                            const p = existingMsg.querySelector('.msg-text');
+                            if (p) p.innerHTML = newText;
+                            
+                            if (change.doc.data().edited && !existingMsg.querySelector('.msg-edited')) {
+                                const bubble = existingMsg.querySelector('.msg-bubble');
+                                bubble.insertAdjacentHTML('beforeend', '<span class="text-[10px] opacity-50 block mt-1 msg-edited">(изменено)</span>');
+                            }
+                        }
+                    }
+                    if (change.type === 'removed') {
+                        const existingMsg = document.getElementById(`msg-${change.doc.id}`);
+                        if (existingMsg) existingMsg.remove();
+                    }
+                });
                 
                 if (isFirstLoad) {
                     messagesContainer.scrollTop = messagesContainer.scrollHeight;
                     isFirstLoad = false;
-                } else {
+                } else if (addedAny) {
                     messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
                 }
             });
+    }
+
+    async function deleteEntireChat(chatId) {
+        try {
+            const msgs = await db.collection('chats').doc(chatId).collection('messages').get();
+            const batch = db.batch();
+            msgs.forEach(doc => batch.delete(doc.ref));
+            await batch.commit();
+            await db.collection('chats').doc(chatId).delete();
+            
+            if (activeChatId === chatId) {
+                activeChatId = null;
+                messagesContainer.innerHTML = '';
+                if (window.innerWidth <= 767) document.body.classList.remove('chat-active');
+            }
+            showSnackbar('Диалог удален');
+        } catch(err) {
+            showSnackbar('Ошибка удаления: ' + err.message);
+        }
     }
 
     function loadChatList() {
@@ -469,7 +519,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     div.addEventListener('contextmenu', async (e) => {
                         e.preventDefault();
                         if (confirm(`Удалить диалог с ${targetData.username}?`)) {
-                            try { await db.collection('chats').doc(chat.id).delete(); } catch(err) {}
+                            await deleteEntireChat(chat.id);
                         }
                     });
 
@@ -478,7 +528,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     div.addEventListener('touchstart', (e) => {
                         pressTimer = window.setTimeout(async () => {
                             if (confirm(`Удалить диалог с ${targetData.username}?`)) {
-                                try { await db.collection('chats').doc(chat.id).delete(); } catch(err) {}
+                                await deleteEntireChat(chat.id);
                             }
                         }, 800);
                     });
@@ -574,6 +624,10 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!contextTargetId || !activeChatId) return;
         try {
             await db.collection('chats').doc(activeChatId).collection('messages').doc(contextTargetId).delete();
+            db.collection('chats').doc(activeChatId).set({
+                lastMessage: '🗑 Сообщение удалено',
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).catch(()=>{});
         } catch (e) {
             showSnackbar('Ошибка удаления: ' + e.message);
         }
@@ -590,20 +644,29 @@ document.addEventListener('DOMContentLoaded', () => {
                 text: newText.trim(),
                 edited: true
             }).catch(e => showSnackbar('Ошибка: ' + e.message));
+            
+            db.collection('chats').doc(activeChatId).set({
+                lastMessage: newText.trim(),
+                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+            }, { merge: true }).catch(()=>{});
         }
     });
 
     const renderMessage = (docId, msg) => {
         const isMe = msg.userId === currentUser.uid;
         const msgDiv = document.createElement('div');
+        msgDiv.id = `msg-${docId}`;
         msgDiv.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} gap-1 max-w-[85%] md:max-w-[70%] ${isMe ? 'self-end' : 'self-start'} animate-msg`;
 
         const time = msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
         
+        const imageHtml = msg.imageUrl ? `<img src="${msg.imageUrl}" class="msg-image w-full max-w-sm rounded-xl mb-2 object-cover cursor-pointer hover:brightness-90 transition-all" onclick="window.open(this.src, '_blank')">` : '';
+
         msgDiv.innerHTML = `
             <div class="msg-bubble cursor-pointer ${isMe ? 'bg-primary-container text-on-primary-container rounded-[24px] rounded-br-sm' : 'bg-surface-container text-white rounded-[24px] rounded-bl-sm'} p-4 shadow-lg transition-all active:scale-[0.98]">
-                <p class="text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap">${escapeHtml(msg.text)}</p>
-                ${msg.edited ? '<span class="text-[10px] opacity-50 block mt-1">(изменено)</span>' : ''}
+                ${imageHtml}
+                <p class="msg-text text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap">${escapeHtml(msg.text)}</p>
+                ${msg.edited ? '<span class="msg-edited text-[10px] opacity-50 block mt-1">(изменено)</span>' : ''}
             </div>
             <div class="flex items-center gap-1 text-[10px] text-on-surface-variant/40 px-2 mt-1">
                 <span>${time}</span>
@@ -639,6 +702,45 @@ document.addEventListener('DOMContentLoaded', () => {
             }, { merge: true }).catch(()=>{});
         }, 1500);
     });
+
+    const chatImageInput = document.getElementById('chat-image-input');
+    if (chatImageInput) {
+        chatImageInput.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file || !currentUser || !activeChatId) return;
+            
+            showSnackbar('Отправка изображения...');
+            
+            const storageRef = storage.ref(`chat_images/${activeChatId}/${Date.now()}_${file.name}`);
+            try {
+                const snapshot = await storageRef.put(file);
+                const url = await snapshot.ref.getDownloadURL();
+                
+                const timestamp = firebase.firestore.FieldValue.serverTimestamp();
+                db.collection("chats").doc(activeChatId).collection('messages').add({
+                    text: '📷 Изображение',
+                    imageUrl: url,
+                    userId: currentUser.uid,
+                    userName: currentUser.displayName,
+                    timestamp: timestamp
+                });
+                
+                db.collection("chats").doc(activeChatId).set({
+                    lastMessage: '📷 Изображение',
+                    lastMessageSender: currentUser.uid,
+                    lastUpdated: timestamp
+                }, { merge: true });
+                
+                chatImageInput.value = '';
+            } catch (err) {
+                if (err.message.includes('not been set up') || err.message.includes('unauthorized')) {
+                    showSnackbar('Включите Storage в Firebase Console!');
+                } else {
+                    showSnackbar('Ошибка отправки: ' + err.message);
+                }
+            }
+        });
+    }
 
     // Send Message on Enter
     messageInput.addEventListener('keydown', (e) => {
