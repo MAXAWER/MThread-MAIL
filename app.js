@@ -1136,8 +1136,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Show specific step
     window.showStep = (stepId) => {
-        [stepLogin, stepRegister].forEach(s => s.classList.add('hidden'));
-        document.getElementById(stepId).classList.remove('hidden');
+        const allSteps = ['step-login', 'step-register', 'step-recovery', 'step-mfa-verify'];
+        allSteps.forEach(id => {
+            const el = document.getElementById(id);
+            if (el) el.classList.add('hidden');
+        });
+        const target = document.getElementById(stepId);
+        if (target) target.classList.remove('hidden');
     };
 
     // --- Group Admin Management ---

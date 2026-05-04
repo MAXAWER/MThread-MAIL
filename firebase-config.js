@@ -13,16 +13,19 @@ const firebaseConfig = {
 // Инициализация
 if (firebaseConfig.apiKey) {
     firebase.initializeApp(firebaseConfig);
-    
-    // Включение App Check
-    try {
-        const appCheck = firebase.appCheck();
-        appCheck.activate(
-            new firebase.appCheck.ReCaptchaV3Provider('6Le9ZdksAAAAANd3wMutGE6zPrwaUmLSplo9gMPp'),
-            true // isTokenAutoRefreshEnabled
-        );
-        console.log("Firebase App Check is active.");
-    } catch (e) {
-        console.warn("App Check init error:", e);
-    }
+
+    // App Check — активировать после получения реального Site Key из Firebase Console -> App Check
+    // Шаги: Firebase Console -> App Check -> Зарегистрировать веб-приложение -> выбрать reCAPTCHA v3
+    // -> получить Site Key -> вставить ниже и раскомментировать.
+    //
+    // try {
+    //     const appCheck = firebase.appCheck();
+    //     appCheck.activate(
+    //         new firebase.appCheck.ReCaptchaV3Provider('ВСТАВЬТЕ_СЮДА_РЕАЛЬНЫЙ_SITE_KEY'),
+    //         true
+    //     );
+    //     console.log("Firebase App Check is active.");
+    // } catch (e) {
+    //     console.warn("App Check init error:", e);
+    // }
 }

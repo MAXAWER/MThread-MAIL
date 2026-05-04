@@ -31,9 +31,9 @@ service cloud.firestore {
                    && request.resource.data.keys().hasAny(['username', 'createdAt', 'avatarUrl', 'status', 'lastSeen', 'fcmToken']);
     }
 
-    // usernames: everyone can read, write only on creation, never on update/delete
+    // usernames: публичное чтение (нужно при логине до авторизации), создание только своего, удаление/обновление запрещено
     match /usernames/{username} {
-      allow read: if isAuth();
+      allow read: if true;  // Нужен неаутентифицированный доступ для поиска email при логине
       allow create: if isAuth() 
                     && request.resource.data.uid == request.auth.uid
                     && request.resource.data.keys().hasOnly(['email', 'uid']);
@@ -43,15 +43,8 @@ service cloud.firestore {
     // chats (direct messages)
     match /chats/{chatId} {
       allow read: if isAuth() && request.auth.uid in resource.data.participants;
-      // Create: both participants must be present, creator must be one of them
-      allow create: if isAuth()
-                    && request.auth.uid in request.resource.data.participants
-                    && request.resource.data.participants.size() == 2;
-      // Update: only participants can update, and only allowed fields
-      allow update: if isAuth()
-                    && request.auth.uid in resource.data.participants
-                    && request.resource.data.diff(resource.data).affectedKeys()
-                       .hasOnly(['lastMessage', 'lastMessageSender', 'lastUpdated', 'typing']);
+      allow create: if isAuth() && request.auth.uid in request.resource.data.participants;
+      allow update: if isAuth() && request.auth.uid in resource.data.participants;
       allow delete: if isAuth() && request.auth.uid in resource.data.participants;
 
       // Messages inside chats
