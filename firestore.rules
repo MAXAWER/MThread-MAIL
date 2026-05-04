@@ -28,7 +28,7 @@ service cloud.firestore {
       allow read: if isAuth();
       allow write: if isAuth() 
                    && request.auth.uid == userId
-                   && request.resource.data.keys().hasAny(['username', 'createdAt', 'avatarUrl', 'status', 'lastSeen', 'fcmToken']);
+                   && request.resource.data.keys().hasAny(['username', 'createdAt', 'avatarUrl', 'status', 'lastSeen', 'fcmToken', 'bio', 'displayName']);
     }
 
     // usernames: публичное чтение (нужно при логине до авторизации), создание только своего, удаление/обновление запрещено

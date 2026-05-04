@@ -1453,56 +1453,93 @@ document.addEventListener('DOMContentLoaded', () => {
         const user = firebase.auth().currentUser;
         const statusEl = document.getElementById('mfa-status-text');
         const btn = document.getElementById('mfa-setup-btn');
-        if (!statusEl || !user) return;
-        const enrolled = user.multiFactor?.enrolledFactors?.length > 0;
-        if (enrolled) {
-            statusEl.textContent = 'Включена (SMS). Вы защищены.';
-            btn.textContent = 'Отключить';
-            btn.classList.replace('bg-primary-container/20', 'bg-red-500/20');
-            btn.classList.replace('text-primary-container', 'text-red-400');
-        } else {
-            statusEl.textContent = 'Не включена. Рекомендуется активировать.';
-            btn.textContent = 'Настроить';
-            btn.classList.replace('bg-red-500/20', 'bg-primary-container/20');
-            btn.classList.replace('text-red-400', 'text-primary-container');
+        if (!statusEl) return;
+        if (!user) {
+            statusEl.textContent = 'Нет пользователя.';
+            return;
+        }
+        try {
+            const factors = user.multiFactor?.enrolledFactors || [];
+            const enrolled = factors.length > 0;
+            if (enrolled) {
+                const phone = factors[0].phoneNumber || '';
+                statusEl.textContent = `Включена (SMS${phone ? ': ' + phone : ''}). Вы защищены.`;
+                if (btn) {
+                    btn.textContent = 'Отключить';
+                    btn.style.background = 'rgba(239,68,68,0.15)';
+                    btn.style.color = '#f87171';
+                }
+            } else {
+                statusEl.textContent = 'Не включена. Рекомендуется активировать.';
+                if (btn) {
+                    btn.textContent = 'Настроить';
+                    btn.style.background = '';
+                    btn.style.color = '';
+                }
+            }
+        } catch (e) {
+            statusEl.textContent = 'Недоступно (требует Identity Platform).';
+            if (btn) btn.style.display = 'none';
         }
     }
 
-    // Called when settings panel opens
-    const origShowSettings = window.showSettings?.bind(window) || (() => {});
-    window.showSettings = function() {
-        origShowSettings();
-        refreshMfaStatus();
-        document.getElementById('mfa-phone-setup-form').classList.add('hidden');
-        document.getElementById('mfa-setup-code-block').classList.add('hidden');
+    // Перехватываем оригинальную showSettings (async!) и вызываем refreshMfaStatus после неё
+    const _origShowSettings = window.showSettings;
+    window.showSettings = async function() {
+        if (_origShowSettings) await _origShowSettings();
+        // Небольшая задержка, чтобы дать Firebase обновить user object
+        setTimeout(() => refreshMfaStatus(), 150);
+        const form = document.getElementById('mfa-phone-setup-form');
+        const codeBlock = document.getElementById('mfa-setup-code-block');
+        if (form) form.classList.add('hidden');
+        if (codeBlock) codeBlock.classList.add('hidden');
     };
 
     document.getElementById('mfa-setup-btn')?.addEventListener('click', () => {
         const user = firebase.auth().currentUser;
         if (!user) return;
-        const enrolled = user.multiFactor?.enrolledFactors?.length > 0;
+        let factors = [];
+        try { factors = user.multiFactor?.enrolledFactors || []; } catch (e) {}
+        const enrolled = factors.length > 0;
         if (enrolled) {
-            // Unenroll from MFA
             if (!confirm('Вы уверены, что хотите отключить двухфакторную аутентификацию?')) return;
-            const factor = user.multiFactor.enrolledFactors[0];
-            user.multiFactor.unenroll(factor).then(() => {
-                showSnackbar('Двухфакторная аутентификация отключена.');
-                refreshMfaStatus();
-            }).catch(e => showSnackbar('Ошибка: ' + e.message));
+            const factor = factors[0];
+            user.multiFactor.unenroll(factor)
+                .then(() => { showSnackbar('Двухфакторная аутентификация отключена.'); refreshMfaStatus(); })
+                .catch(e => showSnackbar('Ошибка: ' + e.message));
         } else {
-            document.getElementById('mfa-phone-setup-form').classList.toggle('hidden');
+            const form = document.getElementById('mfa-phone-setup-form');
+            if (form) form.classList.toggle('hidden');
         }
     });
 
     document.getElementById('mfa-send-sms-btn')?.addEventListener('click', async () => {
         const phone = document.getElementById('mfa-phone-input').value.trim();
-        if (!phone.startsWith('+')) { showSnackbar('Укажите номер с кодом страны, например: +7...'); return; }
+        if (!phone.startsWith('+')) {
+            showSnackbar('Укажите номер с кодом страны, например: +77001234567');
+            return;
+        }
         const btn = document.getElementById('mfa-send-sms-btn');
         btn.disabled = true; btn.textContent = 'Отправка...';
         try {
-            if (_mfaSetupRecaptcha) { _mfaSetupRecaptcha.clear(); }
-            _mfaSetupRecaptcha = new firebase.auth.RecaptchaVerifier('mfa-setup-recaptcha', { size: 'invisible' });
+            // Очищаем предыдущий верификатор
+            if (_mfaSetupRecaptcha) {
+                try { _mfaSetupRecaptcha.clear(); } catch (e) {}
+                _mfaSetupRecaptcha = null;
+            }
+            // Очищаем контейнер
+            const container = document.getElementById('mfa-setup-recaptcha');
+            if (container) container.innerHTML = '';
+
+            _mfaSetupRecaptcha = new firebase.auth.RecaptchaVerifier(
+                'mfa-setup-recaptcha',
+                { size: 'normal', callback: () => {} }
+            );
+            await _mfaSetupRecaptcha.render();
+
             const user = firebase.auth().currentUser;
+            if (!user) throw new Error('Пользователь не найден. Войдите заново.');
+            
             const multiFactorSession = await user.multiFactor.getSession();
             const phoneAuthProvider = new firebase.auth.PhoneAuthProvider();
             _mfaSetupVerificationId = await phoneAuthProvider.verifyPhoneNumber(
@@ -1510,33 +1547,44 @@ document.addEventListener('DOMContentLoaded', () => {
                 _mfaSetupRecaptcha
             );
             document.getElementById('mfa-setup-code-block').classList.remove('hidden');
-            showSnackbar('SMS отправлен! Введите код.');
+            showSnackbar('SMS отправлен! Введите код подтверждения.');
         } catch (e) {
-            showSnackbar('Ошибка: ' + e.message);
+            let msg = e.message;
+            if (e.code === 'auth/requires-recent-login') msg = 'Для настройки 2FA нужно войти заново. Выйдите и войдите снова.';
+            if (e.code === 'auth/internal-error') msg = 'Внутренняя ошибка Firebase. Убедитесь что Phone Auth включён в консоли Firebase.';
+            if (e.code === 'auth/invalid-phone-number') msg = 'Неверный формат номера. Пример: +77001234567';
+            showSnackbar('Ошибка: ' + msg);
+            if (_mfaSetupRecaptcha) { try { _mfaSetupRecaptcha.clear(); } catch (_) {} _mfaSetupRecaptcha = null; }
         }
         btn.disabled = false; btn.textContent = 'Отправить SMS';
     });
 
     document.getElementById('mfa-confirm-btn')?.addEventListener('click', async () => {
         const code = document.getElementById('mfa-setup-code').value.trim();
-        if (!code || !_mfaSetupVerificationId) return;
+        if (!code || !_mfaSetupVerificationId) {
+            showSnackbar('Введите код из SMS.');
+            return;
+        }
         const btn = document.getElementById('mfa-confirm-btn');
         btn.disabled = true; btn.textContent = 'Сохранение...';
         try {
             const cred = firebase.auth.PhoneAuthProvider.credential(_mfaSetupVerificationId, code);
             const assertion = firebase.auth.PhoneMultiFactorGenerator.assertion(cred);
             await firebase.auth().currentUser.multiFactor.enroll(assertion, 'Основной телефон');
-            showSnackbar('Двухфакторная аутентификация включена!');
+            showSnackbar('Двухфакторная аутентификация успешно включена!');
             document.getElementById('mfa-phone-setup-form').classList.add('hidden');
             document.getElementById('mfa-setup-code-block').classList.add('hidden');
             document.getElementById('mfa-phone-input').value = '';
             document.getElementById('mfa-setup-code').value = '';
             refreshMfaStatus();
         } catch (e) {
-            showSnackbar('Ошибка подтверждения: ' + e.message);
+            let msg = e.message;
+            if (e.code === 'auth/invalid-verification-code') msg = 'Неверный код. Попробуйте ещё раз.';
+            showSnackbar('Ошибка: ' + msg);
             btn.disabled = false; btn.textContent = 'Подтвердить и включить';
         }
     });
+
 
     window.toggleMobileChat = function(active) {
         if (window.innerWidth <= 767) {
