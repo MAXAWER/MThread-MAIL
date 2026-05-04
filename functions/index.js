@@ -49,3 +49,26 @@ exports.sendPushNotification = functions.firestore
 
     return null;
   });
+
+exports.cleanupChatStorage = functions.firestore
+  .document("{collection}/{chatId}")
+  .onDelete(async (snap, context) => {
+    const { collection, chatId } = context.params;
+    
+    // Only proceed for chats and groups
+    if (collection !== 'chats' && collection !== 'groups') {
+      return null;
+    }
+
+    try {
+      const bucket = admin.storage().bucket();
+      // Delete all files in the chat's folder
+      await bucket.deleteFiles({
+        prefix: `chat_images/${chatId}/`
+      });
+      console.log(`Successfully deleted storage files for ${collection}/${chatId}`);
+    } catch (error) {
+      console.error(`Error deleting storage files for ${collection}/${chatId}:`, error);
+    }
+    return null;
+  });
