@@ -762,29 +762,58 @@ document.addEventListener('DOMContentLoaded', () => {
         msgDiv.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} gap-1 max-w-[85%] md:max-w-[70%] ${isMe ? 'self-end' : 'self-start'} animate-msg`;
 
         const time = msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
-        
-        const imageHtml = msg.imageUrl ? `<img src="${msg.imageUrl}" class="msg-image w-full max-w-sm rounded-xl mb-2 object-cover cursor-pointer hover:brightness-90 transition-all" onclick="window.open(this.src, '_blank')">` : '';
-
-        const checkIcon = msg.read ? 'done_all' : 'done';
-        const checkColor = msg.read ? 'text-blue-400' : 'text-on-surface-variant';
         const isGroup = activeChatUser && activeChatUser.isGroup;
+
+        const bubble = document.createElement('div');
+        bubble.className = `msg-bubble cursor-pointer ${isMe ? 'bg-primary-container text-on-primary-container rounded-[24px] rounded-br-sm' : 'bg-surface-container text-white rounded-[24px] rounded-bl-sm'} p-4 shadow-lg transition-all active:scale-[0.98]`;
+
+        if (isGroup && !isMe) {
+            const senderSpan = document.createElement('span');
+            senderSpan.className = 'text-[10px] font-bold text-primary-container mb-1 block';
+            senderSpan.textContent = msg.userName || 'User';
+            bubble.appendChild(senderSpan);
+        }
+
+        if (msg.imageUrl) {
+            const img = document.createElement('img');
+            img.src = msg.imageUrl;
+            img.className = 'msg-image w-full max-w-sm rounded-xl mb-2 object-cover cursor-pointer hover:brightness-90 transition-all';
+            img.addEventListener('click', () => window.open(img.src, '_blank'));
+            bubble.appendChild(img);
+        }
+
+        const textP = document.createElement('p');
+        textP.className = 'msg-text text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap';
+        textP.textContent = msg.text;
+        bubble.appendChild(textP);
+
+        if (msg.edited) {
+            const editedSpan = document.createElement('span');
+            editedSpan.className = 'msg-edited text-[10px] opacity-50 block mt-1';
+            editedSpan.textContent = '(изменено)';
+            bubble.appendChild(editedSpan);
+        }
+
+        msgDiv.appendChild(bubble);
+
+        const metaDiv = document.createElement('div');
+        metaDiv.className = 'flex items-center gap-1 text-[10px] text-on-surface-variant/40 px-2 mt-1';
         
-        const senderNameHtml = (isGroup && !isMe) ? `<span class="text-[10px] font-bold text-primary-container mb-1 block">${escapeHtml(msg.userName || 'User')}</span>` : '';
+        const timeSpan = document.createElement('span');
+        timeSpan.textContent = time;
+        metaDiv.appendChild(timeSpan);
 
-        msgDiv.innerHTML = `
-            <div class="msg-bubble cursor-pointer ${isMe ? 'bg-primary-container text-on-primary-container rounded-[24px] rounded-br-sm' : 'bg-surface-container text-white rounded-[24px] rounded-bl-sm'} p-4 shadow-lg transition-all active:scale-[0.98]">
-                ${senderNameHtml}
-                ${imageHtml}
-                <p class="msg-text text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap">${escapeHtml(msg.text)}</p>
-                ${msg.edited ? '<span class="msg-edited text-[10px] opacity-50 block mt-1">(изменено)</span>' : ''}
-            </div>
-            <div class="flex items-center gap-1 text-[10px] text-on-surface-variant/40 px-2 mt-1">
-                <span>${time}</span>
-                ${isMe ? `<span class="material-symbols-outlined text-[14px] ${checkColor}">${checkIcon}</span>` : ''}
-            </div>
-        `;
+        if (isMe) {
+            const checkIcon = msg.read ? 'done_all' : 'done';
+            const checkColor = msg.read ? 'text-blue-400' : 'text-on-surface-variant';
+            const checkSpan = document.createElement('span');
+            checkSpan.className = `material-symbols-outlined text-[14px] ${checkColor}`;
+            checkSpan.textContent = checkIcon;
+            metaDiv.appendChild(checkSpan);
+        }
 
-        const bubble = msgDiv.querySelector('.msg-bubble');
+        msgDiv.appendChild(metaDiv);
+
         bubble.addEventListener('contextmenu', (e) => {
             e.preventDefault();
             showContextMenu(e.clientX, e.clientY, docId, msg.text, isMe);
@@ -1290,4 +1319,33 @@ document.addEventListener('DOMContentLoaded', () => {
             registerBtn.disabled = false; registerBtn.textContent = 'Создать аккаунт';
         }
     });
+
+    // --- DOM Event Bindings (Strict CSP) ---
+    document.getElementById('logo-btn')?.addEventListener('click', () => window.location.reload());
+    document.getElementById('nav-dm-btn')?.addEventListener('click', () => switchTab('dm'));
+    document.getElementById('nav-group-btn')?.addEventListener('click', () => switchTab('groups'));
+    document.getElementById('sidebar-profile-btn')?.addEventListener('click', showSettings);
+    document.getElementById('mob-nav-profile')?.addEventListener('click', showSettings);
+    document.getElementById('mob-back-btn')?.addEventListener('click', () => toggleMobileChat(false));
+    document.getElementById('group-info-btn')?.addEventListener('click', openGroupSettings);
+    document.getElementById('create-group-fab')?.addEventListener('click', openCreateGroupModal);
+    document.getElementById('chat-attach-btn')?.addEventListener('click', () => document.getElementById('chat-image-input').click());
+    document.getElementById('to-register-btn')?.addEventListener('click', () => showStep('step-register'));
+    document.getElementById('to-login-btn')?.addEventListener('click', () => showStep('step-login'));
+    document.getElementById('close-settings-btn')?.addEventListener('click', closeSettings);
+    document.getElementById('avatar-upload-trigger')?.addEventListener('click', () => document.getElementById('avatar-upload-input').click());
+    document.getElementById('settings-logout-btn')?.addEventListener('click', () => firebase.auth().signOut());
+    document.getElementById('close-create-group-btn')?.addEventListener('click', closeCreateGroupModal);
+    document.getElementById('close-group-settings-btn')?.addEventListener('click', closeGroupSettings);
+    document.getElementById('group-delete-btn')?.addEventListener('click', deleteEntireGroupFromSettings);
+    document.getElementById('group-save-btn')?.addEventListener('click', saveGroupSettings);
+    document.getElementById('mob-nav-dm')?.addEventListener('click', () => switchTab('dm'));
+    document.getElementById('mob-nav-groups')?.addEventListener('click', () => switchTab('groups'));
+
+    window.toggleMobileChat = function(active) {
+        if (window.innerWidth <= 767) {
+            if (active) document.body.classList.add('chat-active');
+            else document.body.classList.remove('chat-active');
+        }
+    };
 });

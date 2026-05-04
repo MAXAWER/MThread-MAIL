@@ -3,28 +3,11 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.tailwindcss.com https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://fcmregistrations.googleapis.com; img-src 'self' data: blob: https://ui-avatars.com https://firebasestorage.googleapis.com;">
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' https://www.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; connect-src 'self' https://firestore.googleapis.com https://identitytoolkit.googleapis.com https://securetoken.googleapis.com https://fcmregistrations.googleapis.com; img-src 'self' data: blob: https://ui-avatars.com https://firebasestorage.googleapis.com;">
     <title>MThread Messenger</title>
     <link rel="stylesheet" href="style.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;900&display=swap" rel="stylesheet">
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200" rel="stylesheet" />
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script>
-        tailwind.config = {
-            darkMode: 'class',
-            theme: {
-                extend: {
-                    colors: {
-                        surface: '#121416',
-                        'surface-dim': '#0c0e10',
-                        'surface-container': '#1e2022',
-                        'primary-container': '#d0e2ff',
-                        'on-primary-container': '#53647d',
-                    }
-                }
-            }
-        }
-    </script>
     <style>
         body { background-color: #000; }
         .custom-scroll::-webkit-scrollbar { width: 4px; }
@@ -47,16 +30,16 @@
         <!-- 1. Narrow Sidebar (Desktop Only) -->
         <nav class="hidden md:flex flex-col w-[72px] bg-surface border-r border-white/5 py-6 items-center gap-6 shrink-0">
             <div class="mb-4">
-                <div class="w-12 h-12 bg-primary-container rounded-2xl flex items-center justify-center ripple-container cursor-pointer hover:brightness-110 transition-all" onclick="window.location.reload()">
+                <div class="w-12 h-12 bg-primary-container rounded-2xl flex items-center justify-center ripple-container cursor-pointer hover:brightness-110 transition-all" id="logo-btn">
                     <span class="text-on-primary-container font-black text-xl">M</span>
                 </div>
             </div>
-            <div id="nav-dm-btn" class="p-3 bg-primary-container/10 text-primary-container rounded-xl cursor-pointer ripple-container transition-all" onclick="switchTab('dm')">
+            <div id="nav-dm-btn" class="p-3 bg-primary-container/10 text-primary-container rounded-xl cursor-pointer ripple-container transition-all" >
                 <span class="material-symbols-outlined material-icon-filled">chat</span>
             </div>
-            <div id="nav-group-btn" class="p-3 text-on-surface-variant hover:bg-white/5 hover:text-white rounded-xl cursor-pointer ripple-container transition-all" onclick="switchTab('groups')"><span class="material-symbols-outlined">group</span></div>
+            <div id="nav-group-btn" class="p-3 text-on-surface-variant hover:bg-white/5 hover:text-white rounded-xl cursor-pointer ripple-container transition-all" ><span class="material-symbols-outlined">group</span></div>
             <div class="mt-auto flex flex-col gap-6 items-center">
-                <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-white/5 cursor-pointer ripple-container hover:brightness-110 transition-all" onclick="showSettings()"><img id="sidebar-avatar" src="https://ui-avatars.com/api/?name=Me&background=d0e2ff&color=53647d" alt=""></div>
+                <div class="w-10 h-10 rounded-full overflow-hidden border-2 border-white/5 cursor-pointer ripple-container hover:brightness-110 transition-all" id="sidebar-profile-btn"><img id="sidebar-avatar" src="https://ui-avatars.com/api/?name=Me&background=d0e2ff&color=53647d" alt=""></div>
             </div>
         </nav>
 
@@ -64,7 +47,7 @@
         <aside class="chat-list-panel flex flex-col w-full md:w-[350px] bg-surface-dim border-r border-white/5 shrink-0 h-full">
             <div class="p-5 md:p-6 flex justify-between items-center">
                 <h2 id="panel-title" class="text-2xl font-bold text-white">Чаты</h2>
-                <button id="create-group-fab" class="hidden p-2 bg-primary-container/10 text-primary-container rounded-xl hover:bg-primary-container/20 transition-all ripple-container" onclick="openCreateGroupModal()">
+                <button id="create-group-fab" class="hidden p-2 bg-primary-container/10 text-primary-container rounded-xl hover:bg-primary-container/20 transition-all ripple-container" >
                     <span class="material-symbols-outlined text-[22px]">group_add</span>
                 </button>
             </div>
@@ -79,7 +62,7 @@
             </div>
             <div id="chat-list-container" class="flex-1 overflow-y-auto custom-scroll">
                 <!-- Chat list will be injected here -->
-                <div class="chat-item-btn p-4 md:px-6 flex gap-4 cursor-pointer hover:bg-white/5 transition-all" onclick="toggleMobileChat(true)">
+                <div class="chat-item-btn p-4 md:px-6 flex gap-4 cursor-pointer hover:bg-white/5 transition-all" >
                     <div class="relative shrink-0">
                         <img src="https://ui-avatars.com/api/?name=Support&background=cac2e2&color=312d46" class="w-12 h-12 rounded-full" alt="">
                         <div class="absolute bottom-0 right-0 w-3 h-3 bg-green-500 rounded-full border-2 border-surface-dim"></div>
@@ -95,9 +78,9 @@
             </div>
             <!-- Mobile Bottom Nav -->
             <div class="md:hidden flex justify-around p-4 pb-safe bg-surface border-t border-white/5 mt-auto shrink-0 z-50">
-                <button id="mob-nav-dm" class="text-primary-container flex flex-col items-center gap-1 ripple-container p-2 rounded-xl transition-all" onclick="switchTab('dm')"><span class="material-symbols-outlined material-icon-filled">chat</span><span class="text-[10px] uppercase font-bold">Чаты</span></button>
-                <button id="mob-nav-groups" class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl transition-all" onclick="switchTab('groups')"><span class="material-symbols-outlined">group</span><span class="text-[10px] uppercase font-bold">Группы</span></button>
-                <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" onclick="showSettings()"><span class="material-symbols-outlined">person</span><span class="text-[10px] uppercase font-bold">Профиль</span></button>
+                <button id="mob-nav-dm" class="text-primary-container flex flex-col items-center gap-1 ripple-container p-2 rounded-xl transition-all" ><span class="material-symbols-outlined material-icon-filled">chat</span><span class="text-[10px] uppercase font-bold">Чаты</span></button>
+                <button id="mob-nav-groups" class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl transition-all" ><span class="material-symbols-outlined">group</span><span class="text-[10px] uppercase font-bold">Группы</span></button>
+                <button class="text-on-surface-variant flex flex-col items-center gap-1 ripple-container p-2 rounded-xl" id="mob-nav-profile"><span class="material-symbols-outlined">person</span><span class="text-[10px] uppercase font-bold">Профиль</span></button>
             </div>
         </aside>
 
@@ -106,14 +89,14 @@
             <!-- Header -->
             <header class="h-16 md:h-20 border-b border-white/5 flex items-center justify-between px-4 md:px-8 bg-surface/80 backdrop-blur-xl shrink-0 z-[110]">
                 <div class="flex items-center gap-3 md:gap-4">
-                    <button class="md:hidden p-2 -ml-2 text-on-surface-variant" onclick="toggleMobileChat(false)"><span class="material-symbols-outlined">arrow_back</span></button>
+                    <button class="md:hidden p-2 -ml-2 text-on-surface-variant" id="mob-back-btn"><span class="material-symbols-outlined">arrow_back</span></button>
                     <div class="flex flex-col">
                         <h3 id="active-chat-name" class="text-lg font-bold text-white leading-tight">Выберите чат</h3>
                         <span id="active-chat-status" class="text-xs text-primary-container hidden transition-all"></span>
                     </div>
                 </div>
                 <div class="flex gap-1 relative">
-                    <button id="group-info-btn" class="p-2 text-on-surface-variant hover:text-white ripple-container rounded-full hidden" onclick="openGroupSettings()"><span class="material-symbols-outlined">info</span></button>
+                    <button id="group-info-btn" class="p-2 text-on-surface-variant hover:text-white ripple-container rounded-full hidden" ><span class="material-symbols-outlined">info</span></button>
                     <button id="chat-options-btn" class="p-2 text-on-surface-variant hover:text-white ripple-container rounded-full hidden"><span class="material-symbols-outlined">more_vert</span></button>
                     <!-- Chat Options Menu -->
                     <div id="chat-options-menu" class="absolute right-0 top-full mt-2 bg-surface-container border border-white/10 rounded-xl shadow-2xl z-[100] hidden flex-col w-48 overflow-hidden">
@@ -133,7 +116,7 @@
             <div class="p-2 pb-safe md:p-8 bg-gradient-to-t from-black via-black to-transparent shrink-0">
                 <form id="message-form" class="max-w-5xl mx-auto flex items-end gap-1 md:gap-4 bg-surface-container/50 md:bg-surface-container/50 bg-black md:border border-white/5 p-1 md:p-2 rounded-[24px] md:rounded-[28px] focus-within:border-primary-container/30 transition-all shadow-2xl border-t border-white/10 md:border-t-0 relative">
                     <input type="file" id="chat-image-input" accept="image/*" class="hidden" title="Прикрепить изображение" placeholder="Прикрепить изображение" aria-label="Прикрепить изображение">
-                    <button type="button" class="p-2 md:p-3 text-on-surface-variant hover:text-white ripple-container rounded-full shrink-0" onclick="document.getElementById('chat-image-input').click()">
+                    <button type="button" class="p-2 md:p-3 text-on-surface-variant hover:text-white ripple-container rounded-full shrink-0" id="chat-attach-btn">
                         <span class="material-symbols-outlined text-[20px] md:text-[24px]">add_circle</span>
                     </button>
                     <div class="flex-1 py-2 md:py-3 pl-2">
@@ -168,7 +151,7 @@
                 <button id="login-btn" class="w-full bg-primary-container text-on-primary-container py-4 rounded-[20px] font-bold hover:brightness-110 active:scale-95 transition-all ripple-container">Войти</button>
             </div>
             <p class="text-center mt-6 text-sm text-on-surface-variant">
-                Нет аккаунта? <button onclick="showStep('step-register')" class="text-primary-container font-bold hover:underline">Зарегистрироваться</button>
+                Нет аккаунта? <button id="to-register-btn" class="text-primary-container font-bold hover:underline">Зарегистрироваться</button>
             </p>
         </div>
 
@@ -188,7 +171,7 @@
                 <button id="register-btn" class="w-full bg-primary-container text-on-primary-container py-4 rounded-[20px] font-bold hover:brightness-110 active:scale-95 transition-all ripple-container">Создать аккаунт</button>
             </div>
             <p class="text-center mt-6 text-sm text-on-surface-variant">
-                Уже есть аккаунт? <button onclick="showStep('step-login')" class="text-primary-container font-bold hover:underline">Войти</button>
+                Уже есть аккаунт? <button id="to-login-btn" class="text-primary-container font-bold hover:underline">Войти</button>
             </p>
         </div>
     </div>
@@ -196,12 +179,12 @@
 
     <div id="settings-modal" class="fixed inset-0 bg-black/80 backdrop-blur-xl z-[300] hidden items-center justify-center p-4">
         <div class="bg-surface rounded-[32px] border border-white/10 max-w-md w-full shadow-2xl p-8 relative">
-            <button onclick="closeSettings()" class="absolute top-5 right-5 p-2 text-on-surface-variant hover:text-white rounded-full"><span class="material-symbols-outlined">close</span></button>
+            <button id="close-settings-btn" class="absolute top-5 right-5 p-2 text-on-surface-variant hover:text-white rounded-full"><span class="material-symbols-outlined">close</span></button>
             <h2 class="text-2xl font-black text-white mb-6">Профиль</h2>
             
             <form id="settings-form" class="space-y-6">
                 <div class="flex justify-center">
-                    <div class="relative group cursor-pointer" onclick="document.getElementById('avatar-upload-input').click()">
+                    <div class="relative group cursor-pointer" id="avatar-upload-trigger">
                         <img id="settings-avatar-preview" src="https://ui-avatars.com/api/?name=User&background=d0e2ff&color=53647d" class="w-24 h-24 rounded-[32px] object-cover border-4 border-surface-container" alt="Аватар профиля">
                         <div class="absolute inset-0 bg-black/50 rounded-[32px] flex items-center justify-center opacity-0 group-hover:opacity-100 transition-all">
                             <span class="material-symbols-outlined text-white">photo_camera</span>
@@ -227,7 +210,7 @@
                 </div>
                 
                 <div class="flex gap-4 pt-4">
-                    <button type="button" class="flex-1 py-4 rounded-[20px] font-bold text-white bg-white/5 hover:bg-white/10 transition-all ripple-container" onclick="firebase.auth().signOut()">Выйти</button>
+                    <button type="button" class="flex-1 py-4 rounded-[20px] font-bold text-white bg-white/5 hover:bg-white/10 transition-all ripple-container" id="settings-logout-btn">Выйти</button>
                     <button type="submit" id="settings-save-btn" class="flex-1 py-4 rounded-[20px] font-bold bg-primary-container text-on-primary-container hover:brightness-110 active:scale-95 transition-all ripple-container">Сохранить</button>
                 </div>
             </form>
@@ -240,7 +223,7 @@
     <!-- Create Group Modal -->
     <div id="create-group-modal" class="fixed inset-0 bg-black/80 backdrop-blur-xl z-[300] hidden items-center justify-center p-4">
         <div class="bg-surface rounded-[32px] border border-white/10 max-w-md w-full shadow-2xl p-8 relative">
-            <button onclick="closeCreateGroupModal()" class="absolute top-5 right-5 p-2 text-on-surface-variant hover:text-white rounded-full"><span class="material-symbols-outlined">close</span></button>
+            <button id="close-create-group-btn" class="absolute top-5 right-5 p-2 text-on-surface-variant hover:text-white rounded-full"><span class="material-symbols-outlined">close</span></button>
             <h2 class="text-2xl font-black text-white mb-6">Новая группа</h2>
             <div class="space-y-4">
                 <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50">
@@ -262,7 +245,7 @@
     <!-- Group Settings Modal (Admin) -->
     <div id="group-settings-modal" class="fixed inset-0 bg-black/80 backdrop-blur-xl z-[300] hidden items-center justify-center p-4">
         <div class="bg-surface rounded-[32px] border border-white/10 max-w-md w-full shadow-2xl p-8 relative">
-            <button onclick="closeGroupSettings()" class="absolute top-5 right-5 p-2 text-on-surface-variant hover:text-white rounded-full"><span class="material-symbols-outlined">close</span></button>
+            <button id="close-group-settings-btn" class="absolute top-5 right-5 p-2 text-on-surface-variant hover:text-white rounded-full"><span class="material-symbols-outlined">close</span></button>
             <h2 class="text-2xl font-black text-white mb-6">Управление группой</h2>
             <div class="space-y-6">
                 <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50">
@@ -283,8 +266,8 @@
                     </div>
                 </div>
                 <div class="flex gap-4 pt-2">
-                    <button id="group-delete-btn" class="flex-1 py-4 rounded-[20px] font-bold text-red-400 bg-white/5 hover:bg-white/10 transition-all ripple-container" onclick="deleteEntireGroupFromSettings()">Удалить группу</button>
-                    <button id="group-save-btn" class="flex-1 py-4 rounded-[20px] font-bold bg-primary-container text-on-primary-container hover:brightness-110 active:scale-95 transition-all ripple-container" onclick="saveGroupSettings()">Сохранить</button>
+                    <button id="group-delete-btn" class="flex-1 py-4 rounded-[20px] font-bold text-red-400 bg-white/5 hover:bg-white/10 transition-all ripple-container" >Удалить группу</button>
+                    <button id="group-save-btn" class="flex-1 py-4 rounded-[20px] font-bold bg-primary-container text-on-primary-container hover:brightness-110 active:scale-95 transition-all ripple-container" >Сохранить</button>
                 </div>
             </div>
         </div>
@@ -308,16 +291,5 @@
     <script src="https://www.gstatic.com/firebasejs/10.7.1/firebase-messaging-compat.js"></script>
     <script src="firebase-config.js"></script>
     <script src="app.js"></script>
-    <script>
-        function toggleMobileChat(active) {
-            if (window.innerWidth <= 767) {
-                if (active) {
-                    document.body.classList.add('chat-active');
-                } else {
-                    document.body.classList.remove('chat-active');
-                }
-            }
-        }
-    </script>
 </body>
 </html>

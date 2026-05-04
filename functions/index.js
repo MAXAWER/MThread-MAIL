@@ -72,3 +72,38 @@ exports.cleanupChatStorage = functions.firestore
     }
     return null;
   });
+
+exports.cleanupUserAccount = functions.auth.user().onDelete(async (user) => {
+  const uid = user.uid;
+  const bucket = admin.storage().bucket();
+  const db = admin.firestore();
+
+  try {
+    // 1. Delete user doc
+    const userDocRef = db.collection('users').doc(uid);
+    const userDoc = await userDocRef.get();
+    
+    if (userDoc.exists) {
+      const username = userDoc.data().username;
+      
+      // 2. Delete username mapping
+      if (username) {
+        await db.collection('usernames').doc(username).delete();
+      }
+      
+      // Delete user profile
+      await userDocRef.delete();
+    }
+
+    // 3. Delete avatars from storage
+    // We can't know the exact filename easily, so we list files starting with uid_
+    const [files] = await bucket.getFiles({ prefix: `avatars/${uid}_` });
+    const deletePromises = files.map(file => file.delete());
+    await Promise.all(deletePromises);
+    
+    console.log(`Successfully cleaned up data for deleted user ${uid}`);
+  } catch (error) {
+    console.error(`Error cleaning up user data for ${uid}:`, error);
+  }
+  return null;
+});

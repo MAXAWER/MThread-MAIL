@@ -1,0 +1,9 @@
+@import "tailwindcss";
+
+@theme {
+  --color-surface: #121416;
+  --color-surface-dim: #0c0e10;
+  --color-surface-container: #1e2022;
+  --color-primary-container: #d0e2ff;
+  --color-on-primary-container: #53647d;
+}
