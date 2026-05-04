@@ -13,4 +13,16 @@ const firebaseConfig = {
 // Инициализация
 if (firebaseConfig.apiKey) {
     firebase.initializeApp(firebaseConfig);
+    
+    // Включение App Check
+    try {
+        const appCheck = firebase.appCheck();
+        appCheck.activate(
+            new firebase.appCheck.ReCaptchaV3Provider('6Le9ZdksAAAAANd3wMutGE6zPrwaUmLSplo9gMPp'),
+            true // isTokenAutoRefreshEnabled
+        );
+        console.log("Firebase App Check is active.");
+    } catch (e) {
+        console.warn("App Check init error:", e);
+    }
 }
