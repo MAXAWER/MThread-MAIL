@@ -233,6 +233,27 @@
             </p>
         </div>
 
+        <!-- Step: MFA Verify -->
+        <div id="step-mfa-verify" class="bg-surface p-8 md:p-10 rounded-[32px] md:rounded-[48px] border border-white/10 max-w-md w-full mx-4 shadow-2xl hidden">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-primary-container rounded-[24px] flex items-center justify-center mx-auto mb-4">
+                    <span class="material-symbols-outlined text-on-primary-container text-3xl">sms</span>
+                </div>
+                <h2 class="text-3xl font-black text-white">Двухфакторная защита</h2>
+                <p class="text-on-surface-variant text-sm mt-2">Мы отправили SMS с кодом на номер <span id="mfa-phone-hint" class="font-bold text-white"></span></p>
+            </div>
+            <div class="space-y-4">
+                <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50">
+                    <input id="mfa-code" type="text" placeholder="Код из SMS" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none text-center tracking-widest text-xl">
+                </div>
+                <button id="mfa-verify-btn" class="w-full bg-primary-container text-on-primary-container py-4 rounded-[20px] font-bold hover:brightness-110 active:scale-95 transition-all ripple-container">Подтвердить</button>
+                <div id="mfa-recaptcha-container"></div>
+            </div>
+            <p class="text-center mt-6 text-sm">
+                <button id="mfa-cancel-btn" class="text-on-surface-variant font-bold hover:text-white transition-colors">Отмена</button>
+            </p>
+        </div>
+
         <!-- 2. Register Step -->
         <div id="step-register" class="bg-surface p-8 md:p-10 rounded-[32px] md:rounded-[48px] border border-white/10 max-w-md w-full mx-4 shadow-2xl hidden">
             <div class="text-center mb-8">
@@ -287,6 +308,31 @@
                     </div>
                 </div>
                 
+                <!-- MFA Setup Section -->
+                <div class="bg-white/5 rounded-2xl p-4 mt-2 border border-white/5">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-white font-semibold text-sm">Двухфакторная аутентификация</p>
+                            <p id="mfa-status-text" class="text-on-surface-variant text-xs mt-0.5">Загрузка...</p>
+                        </div>
+                        <button id="mfa-setup-btn" type="button" class="text-sm font-bold bg-primary-container/20 text-primary-container px-4 py-2 rounded-xl hover:bg-primary-container/40 transition-all">Настроить</button>
+                    </div>
+                    <!-- Phone setup form (hidden by default) -->
+                    <div id="mfa-phone-setup-form" class="hidden mt-4 space-y-3">
+                        <div class="bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                            <input id="mfa-phone-input" type="tel" placeholder="+7 (999) 000-00-00" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none text-sm">
+                        </div>
+                        <button id="mfa-send-sms-btn" type="button" class="w-full py-3 rounded-xl bg-primary-container text-on-primary-container font-bold text-sm hover:brightness-110 transition-all">Отправить SMS</button>
+                        <div id="mfa-setup-code-block" class="hidden space-y-3">
+                            <div class="bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                                <input id="mfa-setup-code" type="text" placeholder="Код из SMS" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none text-sm text-center tracking-widest">
+                            </div>
+                            <button id="mfa-confirm-btn" type="button" class="w-full py-3 rounded-xl bg-primary-container text-on-primary-container font-bold text-sm hover:brightness-110 transition-all">Подтвердить и включить</button>
+                        </div>
+                        <div id="mfa-setup-recaptcha"></div>
+                    </div>
+                </div>
+
                 <div class="flex gap-4 pt-4">
                     <button type="button" class="flex-1 py-4 rounded-[20px] font-bold text-white bg-white/5 hover:bg-white/10 transition-all ripple-container" id="settings-logout-btn">Выйти</button>
                     <button type="submit" id="settings-save-btn" class="flex-1 py-4 rounded-[20px] font-bold bg-primary-container text-on-primary-container hover:brightness-110 active:scale-95 transition-all ripple-container">Сохранить</button>
