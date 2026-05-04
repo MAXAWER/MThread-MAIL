@@ -16,7 +16,14 @@ service cloud.firestore {
           && data.userId == request.auth.uid;
     }
 
-    // users: everyone can read, only the user can write
+    // ---- Internal server-only collection ----
+    // Rate-limit records are written only by Cloud Functions (admin SDK bypasses rules)
+    // But we explicitly deny any client access.
+    match /_rateLimits/{docId} {
+      allow read, write: if false;
+    }
+
+    // users: everyone can read, only the user can write their own doc
     match /users/{userId} {
       allow read: if isAuth();
       allow write: if isAuth() 
@@ -24,7 +31,7 @@ service cloud.firestore {
                    && request.resource.data.keys().hasAny(['username', 'createdAt', 'avatarUrl', 'status', 'lastSeen', 'fcmToken']);
     }
 
-    // usernames: everyone can read, write is allowed only if creating
+    // usernames: everyone can read, write only on creation, never on update/delete
     match /usernames/{username} {
       allow read: if isAuth();
       allow create: if isAuth() 
@@ -36,8 +43,15 @@ service cloud.firestore {
     // chats (direct messages)
     match /chats/{chatId} {
       allow read: if isAuth() && request.auth.uid in resource.data.participants;
-      allow create: if isAuth() && request.auth.uid in request.resource.data.participants;
-      allow update: if isAuth() && request.auth.uid in resource.data.participants;
+      // Create: both participants must be present, creator must be one of them
+      allow create: if isAuth()
+                    && request.auth.uid in request.resource.data.participants
+                    && request.resource.data.participants.size() == 2;
+      // Update: only participants can update, and only allowed fields
+      allow update: if isAuth()
+                    && request.auth.uid in resource.data.participants
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['lastMessage', 'lastMessageSender', 'lastUpdated', 'typing']);
       allow delete: if isAuth() && request.auth.uid in resource.data.participants;
 
       // Messages inside chats
@@ -62,31 +76,15 @@ service cloud.firestore {
     match /groups/{groupId} {
       // Allow read if user is a participant
       allow read: if isAuth() && request.auth.uid in resource.data.participants;
-      // Allow create if the user is the creator and adds themselves
-      allow create: if isAuth() 
-                    && request.resource.data.createdBy == request.auth.uid
-                    && request.auth.uid in request.resource.data.participants;
+      // Creation, deletion and metadata updates are handled by Cloud Functions (admin SDK)
+      allow create: if false;
+      allow delete: if false;
       
-      // Update logic:
-      // If updating participants or name, must be Admin (createdBy), EXCEPT if removing oneself (leaving group)
-      allow update: if isAuth() && (
-        request.auth.uid == resource.data.createdBy // Admin can do anything
-        || (
-           // Non-admin can only remove themselves from participants, nothing else
-           request.auth.uid in resource.data.participants 
-           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participants'])
-           && request.auth.uid in resource.data.participants
-           && !(request.auth.uid in request.resource.data.participants)
-        )
-        || (
-           // Allow updating lastMessage, lastMessageSender, typing, lastUpdated for all participants
-           request.auth.uid in resource.data.participants
-           && request.resource.data.diff(resource.data).affectedKeys().hasAny(['lastMessage', 'lastMessageSender', 'lastUpdated', 'typing'])
-        )
-      );
-      
-      // Delete group: Admin only
-      allow delete: if isAuth() && request.auth.uid == resource.data.createdBy;
+      // Allow updating only messaging metadata (lastMessage, typing, etc.)
+      allow update: if isAuth() 
+                    && request.auth.uid in resource.data.participants
+                    && request.resource.data.diff(resource.data).affectedKeys()
+                       .hasOnly(['lastMessage', 'lastMessageSender', 'lastUpdated', 'typing']);
 
       // Messages inside groups
       match /messages/{messageId} {
