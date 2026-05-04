@@ -2,6 +2,12 @@ const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 admin.initializeApp();
 
+const api = require('./api');
+exports.createGroup = api.createGroup;
+exports.updateGroupMetadata = api.updateGroupMetadata;
+exports.manageGroupMembers = api.manageGroupMembers;
+exports.deleteGroup = api.deleteGroup;
+
 exports.sendPushNotification = functions.firestore
   .document("chats/{chatId}/messages/{messageId}")
   .onCreate(async (snap, context) => {
@@ -79,7 +85,7 @@ exports.cleanupUserAccount = functions.auth.user().onDelete(async (user) => {
   const db = admin.firestore();
 
   try {
-    // 1. Delete user doc
+    // 1. Get username before deleting user doc
     const userDocRef = db.collection('users').doc(uid);
     const userDoc = await userDocRef.get();
     
@@ -91,12 +97,42 @@ exports.cleanupUserAccount = functions.auth.user().onDelete(async (user) => {
         await db.collection('usernames').doc(username).delete();
       }
       
-      // Delete user profile
+      // 3. Delete user profile doc
       await userDocRef.delete();
     }
 
-    // 3. Delete avatars from storage
-    // We can't know the exact filename easily, so we list files starting with uid_
+    // 4. Remove user from all groups (arrayRemove from participants)
+    const groupsSnapshot = await db.collection('groups')
+      .where('participants', 'array-contains', uid)
+      .get();
+    
+    const groupBatch = db.batch();
+    groupsSnapshot.forEach(doc => {
+      const group = doc.data();
+      if (group.createdBy === uid) {
+        // Creator deleted — delete the whole group
+        groupBatch.delete(doc.ref);
+      } else {
+        // Non-creator — just remove from participants
+        groupBatch.update(doc.ref, {
+          participants: admin.firestore.FieldValue.arrayRemove(uid)
+        });
+      }
+    });
+    await groupBatch.commit();
+
+    // 5. Remove user from all DM chats
+    const chatsSnapshot = await db.collection('chats')
+      .where('participants', 'array-contains', uid)
+      .get();
+    
+    const chatBatch = db.batch();
+    chatsSnapshot.forEach(doc => {
+      chatBatch.delete(doc.ref);
+    });
+    await chatBatch.commit();
+
+    // 6. Delete avatars from storage
     const [files] = await bucket.getFiles({ prefix: `avatars/${uid}_` });
     const deletePromises = files.map(file => file.delete());
     await Promise.all(deletePromises);
@@ -107,3 +143,4 @@ exports.cleanupUserAccount = functions.auth.user().onDelete(async (user) => {
   }
   return null;
 });
+

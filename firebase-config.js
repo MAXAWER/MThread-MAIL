@@ -14,18 +14,16 @@ const firebaseConfig = {
 if (firebaseConfig.apiKey) {
     firebase.initializeApp(firebaseConfig);
 
-    // App Check — активировать после получения реального Site Key из Firebase Console -> App Check
-    // Шаги: Firebase Console -> App Check -> Зарегистрировать веб-приложение -> выбрать reCAPTCHA v3
-    // -> получить Site Key -> вставить ниже и раскомментировать.
-    //
-    // try {
-    //     const appCheck = firebase.appCheck();
-    //     appCheck.activate(
-    //         new firebase.appCheck.ReCaptchaV3Provider('ВСТАВЬТЕ_СЮДА_РЕАЛЬНЫЙ_SITE_KEY'),
-    //         true
-    //     );
-    //     console.log("Firebase App Check is active.");
-    // } catch (e) {
-    //     console.warn("App Check init error:", e);
-    // }
+    // Firebase App Check — защита API от ботов и несанкционированных запросов
+    // Site Key подтверждён через reCAPTCHA Admin Console (домены: maxawer1.web.app, mthread.kz)
+    try {
+        const appCheck = firebase.appCheck();
+        appCheck.activate(
+            new firebase.appCheck.ReCaptchaV3Provider('6Le9ZdksAAAAANd3wMutGE6zPrwaUmLSplo9gMPp'),
+            true // автоматическое обновление токена
+        );
+        console.log('[AppCheck] Firebase App Check activated successfully.');
+    } catch (e) {
+        console.warn('[AppCheck] Initialization error (non-fatal):', e.message);
+    }
 }
