@@ -210,6 +210,12 @@ document.addEventListener('DOMContentLoaded', () => {
     if (typeof firebase !== 'undefined' && firebase.apps.length > 0) {
         db = firebase.firestore();
         storage = firebase.storage();
+        
+        firebase.firestore().enablePersistence()
+            .catch((err) => {
+                console.warn('Offline persistence error:', err.code);
+            });
+
         setupAuthListener();
     } else {
         console.error("Firebase not initialized.");
@@ -300,7 +306,6 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // --- Search Logic ---
     let searchTimeout;
     searchInput.addEventListener('input', (e) => {
         clearTimeout(searchTimeout);
@@ -313,29 +318,41 @@ document.addEventListener('DOMContentLoaded', () => {
 
         searchTimeout = setTimeout(async () => {
             try {
-                // Fetch users (in a real app, use Algolia, but here we scan)
-                const snapshot = await db.collection('users').get();
+                // Fetch from usernames collection to avoid bounded query on large users collection
+                const snapshot = await db.collection('usernames')
+                    .orderBy(firebase.firestore.FieldPath.documentId())
+                    .startAt(query).endAt(query + '\uf8ff')
+                    .limit(10).get();
+                    
                 searchResults.innerHTML = '';
                 let found = 0;
                 
                 snapshot.forEach(doc => {
-                    if (doc.id === currentUser.uid) return;
                     const data = doc.data();
-                    if (data.username && data.username.toLowerCase().includes(query)) {
-                        found++;
-                        const div = document.createElement('div');
-                        div.className = 'p-3 hover:bg-white/5 cursor-pointer flex items-center gap-3 transition-all';
-                        div.innerHTML = `
-                            <img src="${data.avatarUrl || `https://ui-avatars.com/api/?name=${data.username}&background=d0e2ff&color=53647d`}" class="w-8 h-8 rounded-full object-cover">
-                            <span class="text-white text-sm">${data.username}</span>
-                        `;
-                        div.onclick = () => {
-                            searchInput.value = '';
-                            searchResults.classList.add('hidden');
-                            startChat(doc.id, data);
-                        };
-                        searchResults.appendChild(div);
-                    }
+                    if (data.uid === currentUser.uid) return;
+                    
+                    found++;
+                    const username = doc.id;
+                    const div = document.createElement('div');
+                    div.className = 'p-3 hover:bg-white/5 cursor-pointer flex items-center gap-3 transition-all';
+                    div.innerHTML = `
+                        <img src="https://ui-avatars.com/api/?name=${username}&background=d0e2ff&color=53647d" class="w-8 h-8 rounded-full object-cover">
+                        <span class="text-white text-sm">${escapeHtml(username)}</span>
+                    `;
+                    div.onclick = async () => {
+                        searchInput.value = '';
+                        searchResults.classList.add('hidden');
+                        
+                        // We need target user's avatar if they set one, so we fetch their user doc briefly
+                        let userAvatar = null;
+                        try {
+                            const userDoc = await db.collection('users').doc(data.uid).get();
+                            if(userDoc.exists) userAvatar = userDoc.data().avatarUrl;
+                        } catch(e) {}
+                        
+                        startChat(data.uid, { username: username, avatarUrl: userAvatar });
+                    };
+                    searchResults.appendChild(div);
                 });
 
                 if (found > 0) {
@@ -904,9 +921,15 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function escapeHtml(text) {
-        const div = document.createElement('div');
-        div.textContent = text;
-        return div.innerHTML;
+        if (!text) return '';
+        const map = {
+            '&': '&amp;',
+            '<': '&lt;',
+            '>': '&gt;',
+            '"': '&quot;',
+            "'": '&#039;'
+        };
+        return text.replace(/[&<>"']/g, function(m) { return map[m]; });
     }
 
     // --- Groups System ---
