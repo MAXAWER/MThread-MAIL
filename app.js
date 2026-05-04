@@ -1054,16 +1054,8 @@ document.addEventListener('DOMContentLoaded', () => {
         createGroupBtn.textContent = 'Создание...';
         
         try {
-            const timestamp = firebase.firestore.FieldValue.serverTimestamp();
-            const groupRef = db.collection('groups').doc();
-            await groupRef.set({
-                name: name,
-                participants: selectedGroupMembers,
-                createdBy: currentUser.uid,
-                createdAt: timestamp,
-                lastUpdated: timestamp,
-                lastMessage: 'Группа создана'
-            });
+            const createGroupFn = firebase.functions().httpsCallable('createGroup');
+            await createGroupFn({ name: name, participants: selectedGroupMembers });
             
             showSnackbar('Группа создана');
             closeCreateGroupModal();
@@ -1203,9 +1195,8 @@ document.addEventListener('DOMContentLoaded', () => {
     window.removeMemberFromGroup = async (uid) => {
         if (!confirm('Удалить участника из группы?')) return;
         try {
-            await db.collection('groups').doc(activeChatId).update({
-                participants: firebase.firestore.FieldValue.arrayRemove(uid)
-            });
+            const manageMembersFn = firebase.functions().httpsCallable('manageGroupMembers');
+            await manageMembersFn({ groupId: activeChatId, action: 'remove', targetUid: uid });
             activeGroupData.participants = activeGroupData.participants.filter(id => id !== uid);
             renderGroupEditMembers();
             showSnackbar('Участник удален');
@@ -1242,9 +1233,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
     async function addMemberToGroup(uid, username) {
         try {
-            await db.collection('groups').doc(activeChatId).update({
-                participants: firebase.firestore.FieldValue.arrayUnion(uid)
-            });
+            const manageMembersFn = firebase.functions().httpsCallable('manageGroupMembers');
+            await manageMembersFn({ groupId: activeChatId, action: 'add', targetUid: uid });
             activeGroupData.participants.push(uid);
             renderGroupEditMembers();
             groupAddMemberSearch.value = '';
@@ -1259,7 +1249,8 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = document.getElementById('group-save-btn');
         btn.disabled = true; btn.textContent = 'Сохранение...';
         try {
-            await db.collection('groups').doc(activeChatId).update({ name: newName });
+            const updateGroupFn = firebase.functions().httpsCallable('updateGroupMetadata');
+            await updateGroupFn({ groupId: activeChatId, name: newName });
             activeChatUser.username = newName;
             document.getElementById('active-chat-name').textContent = newName;
             showSnackbar('Настройки группы сохранены');
@@ -1268,10 +1259,27 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.disabled = false; btn.textContent = 'Сохранить';
     };
 
-    window.deleteEntireGroupFromSettings = () => {
+    window.deleteEntireGroupFromSettings = async () => {
         if (confirm('ВНИМАНИЕ: Это полностью удалит группу и все сообщения для ВСЕХ участников. Продолжить?')) {
-            deleteEntireChat(activeChatId, true);
-            closeGroupSettings();
+            const btn = document.getElementById('group-delete-btn');
+            const originalText = btn.textContent;
+            btn.textContent = 'Удаление...';
+            btn.disabled = true;
+            try {
+                const deleteGroupFn = firebase.functions().httpsCallable('deleteGroup');
+                await deleteGroupFn({ groupId: activeChatId });
+                if (activeChatId === activeGroupData?.id) {
+                    activeChatId = null;
+                    document.getElementById('messages').innerHTML = '';
+                    if (window.innerWidth <= 767) document.body.classList.remove('chat-active');
+                }
+                showSnackbar('Группа удалена');
+                closeGroupSettings();
+            } catch (e) {
+                showSnackbar('Ошибка: ' + e.message);
+                btn.textContent = originalText;
+                btn.disabled = false;
+            }
         }
     };
 
@@ -1332,6 +1340,34 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('chat-attach-btn')?.addEventListener('click', () => document.getElementById('chat-image-input').click());
     document.getElementById('to-register-btn')?.addEventListener('click', () => showStep('step-register'));
     document.getElementById('to-login-btn')?.addEventListener('click', () => showStep('step-login'));
+    document.getElementById('to-recovery-btn')?.addEventListener('click', () => showStep('step-recovery'));
+    document.getElementById('back-to-login-btn')?.addEventListener('click', () => showStep('step-login'));
+    
+    document.getElementById('recovery-btn')?.addEventListener('click', async () => {
+        const usernameInput = document.getElementById('recovery-username');
+        const username = usernameInput.value.trim().toLowerCase();
+        if (!username) return;
+
+        const btn = document.getElementById('recovery-btn');
+        btn.disabled = true; btn.textContent = 'Отправка...';
+
+        try {
+            const userDoc = await db.collection("usernames").doc(username).get();
+            if (userDoc.exists) {
+                const email = userDoc.data().email;
+                await firebase.auth().sendPasswordResetEmail(email);
+            }
+            // OWASP rule: Always show success even if user doesn't exist
+            showSnackbar('Если логин существует, мы отправили инструкцию на почту.');
+            showStep('step-login');
+            usernameInput.value = '';
+        } catch (e) {
+            // OWASP rule: Do not reveal if email doesn't exist, but log actual errors if needed
+            showSnackbar('Если логин существует, мы отправили инструкцию на почту.');
+            showStep('step-login');
+        }
+        btn.disabled = false; btn.textContent = 'Отправить инструкцию';
+    });
     document.getElementById('close-settings-btn')?.addEventListener('click', closeSettings);
     document.getElementById('avatar-upload-trigger')?.addEventListener('click', () => document.getElementById('avatar-upload-input').click());
     document.getElementById('settings-logout-btn')?.addEventListener('click', () => firebase.auth().signOut());

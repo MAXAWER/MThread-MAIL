@@ -204,9 +204,32 @@
                     <input id="login-password" type="password" placeholder="Пароль" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none">
                 </div>
                 <button id="login-btn" class="w-full bg-primary-container text-on-primary-container py-4 rounded-[20px] font-bold hover:brightness-110 active:scale-95 transition-all ripple-container">Войти</button>
+                <div class="text-center mt-2">
+                    <button id="to-recovery-btn" class="text-primary-container text-sm font-medium hover:underline outline-none">Забыли пароль?</button>
+                </div>
             </div>
             <p class="text-center mt-6 text-sm text-on-surface-variant">
                 Нет аккаунта? <button id="to-register-btn" class="text-primary-container font-bold hover:underline">Зарегистрироваться</button>
+            </p>
+        </div>
+
+        <!-- Step: Recovery -->
+        <div id="step-recovery" class="bg-surface p-8 md:p-10 rounded-[32px] md:rounded-[48px] border border-white/10 max-w-md w-full mx-4 shadow-2xl hidden">
+            <div class="text-center mb-8">
+                <div class="w-16 h-16 bg-primary-container rounded-[24px] flex items-center justify-center mx-auto mb-4">
+                    <span class="material-symbols-outlined text-on-primary-container text-3xl">lock_reset</span>
+                </div>
+                <h2 class="text-3xl font-black text-white">Восстановление</h2>
+                <p class="text-on-surface-variant text-sm mt-2">Введите ваш логин. Если он существует, мы отправим ссылку для сброса на привязанную почту.</p>
+            </div>
+            <div class="space-y-4">
+                <div class="bg-white/5 rounded-2xl px-4 py-3 border border-white/5 focus-within:border-primary-container/50">
+                    <input id="recovery-username" type="text" placeholder="Ваш логин" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none">
+                </div>
+                <button id="recovery-btn" class="w-full bg-primary-container text-on-primary-container py-4 rounded-[20px] font-bold hover:brightness-110 active:scale-95 transition-all ripple-container">Отправить инструкцию</button>
+            </div>
+            <p class="text-center mt-6 text-sm">
+                <button id="back-to-login-btn" class="text-on-surface-variant font-bold hover:text-white transition-colors">Вернуться ко входу</button>
             </p>
         </div>
 
