@@ -1641,22 +1641,23 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
     function refreshMfaStatus() {
-        const user = firebase.auth().currentUser;
         const statusEl = document.getElementById('mfa-status-text');
         const btn = document.getElementById('mfa-setup-btn');
         if (!statusEl) return;
-        if (!user) {
-            statusEl.textContent = 'Нет пользователя.';
-            return;
-        }
-        
-        // Update current email display
-        const currentEmailEl = document.getElementById('mfa-current-email');
-        if (currentEmailEl) {
-            currentEmailEl.textContent = user.email || 'Не указан';
-        }
 
         try {
+            const user = firebase.auth().currentUser;
+            if (!user) {
+                statusEl.textContent = 'Нет пользователя.';
+                return;
+            }
+            
+            // Update current email display
+            const currentEmailEl = document.getElementById('mfa-current-email');
+            if (currentEmailEl) {
+                currentEmailEl.textContent = user.email || 'Не указан';
+            }
+
             const factors = user.multiFactor?.enrolledFactors || [];
             const enrolled = factors.length > 0;
             if (enrolled) {
@@ -1676,7 +1677,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         } catch (e) {
-            statusEl.textContent = 'Недоступно (требует Identity Platform).';
+            console.error('refreshMfaStatus error:', e);
+            statusEl.textContent = 'Ошибка: ' + e.message;
             if (btn) btn.style.display = 'none';
         }
     }
