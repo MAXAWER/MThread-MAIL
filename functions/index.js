@@ -39,12 +39,11 @@ exports.sendPushNotification = functions.firestore
       }
 
       // 4. Create the notification payload (Use both notification and data for cross-platform OS-level delivery)
-      const payload = {
+      const messagePayload = {
+        token: fcmToken,
         notification: {
           title: `Новое сообщение от ${message.userName}`,
           body: message.text,
-          icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d',
-          clickAction: 'https://maxawer1.web.app'
         },
         data: {
           title: `Новое сообщение от ${message.userName}`,
@@ -52,11 +51,19 @@ exports.sendPushNotification = functions.firestore
           chatId: chatId,
           click_action: 'https://maxawer1.web.app'
         },
+        webpush: {
+          notification: {
+            icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d'
+          },
+          fcmOptions: {
+            link: 'https://maxawer1.web.app'
+          }
+        }
       };
 
-      // 5. Send via FCM
-      const response = await admin.messaging().sendToDevice(fcmToken, payload);
-      console.log("Successfully sent message:", response);
+      // 5. Send via FCM HTTP v1
+      const response = await admin.messaging().send(messagePayload);
+      console.log("Successfully sent message via FCM v1:", response);
     } catch (error) {
       console.error("Error sending message:", error);
     }
