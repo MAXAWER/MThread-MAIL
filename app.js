@@ -36,6 +36,12 @@ document.addEventListener('DOMContentLoaded', () => {
     let statusUnsubscribe = null;
     let activeChatTypingUnsubscribe = null;
 
+    // MFA state variables (shared across scopes)
+    let _mfaResolver = null;
+    let _mfaRecaptchaVerifier = null;
+    let _mfaSetupRecaptcha = null;
+    let _mfaSetupVerificationId = null;
+
     const chatOptionsBtn = document.getElementById('chat-options-btn');
     const chatOptionsMenu = document.getElementById('chat-options-menu');
     const btnClearChat = document.getElementById('btn-clear-chat');
@@ -249,6 +255,38 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 });
             } else {
+                currentUser = null;
+                userProfileData = {};
+
+                // Immediately hide all modals (preventing higher z-index overlap like settings-modal z-300)
+                if (settingsModal) {
+                    settingsModal.classList.add('hidden');
+                    settingsModal.style.display = 'none';
+                }
+                const groupModal = document.getElementById('create-group-modal');
+                if (groupModal) {
+                    groupModal.classList.add('hidden');
+                    groupModal.style.display = 'none';
+                }
+                const groupSettingsModal = document.getElementById('group-settings-modal');
+                if (groupSettingsModal) {
+                    groupSettingsModal.classList.add('hidden');
+                    groupSettingsModal.style.display = 'none';
+                }
+
+                // Reset MFA setup and verification state
+                if (_mfaSetupRecaptcha) {
+                    try { _mfaSetupRecaptcha.clear(); } catch (_) {}
+                    _mfaSetupRecaptcha = null;
+                }
+                _mfaSetupVerificationId = null;
+
+                if (_mfaRecaptchaVerifier) {
+                    try { _mfaRecaptchaVerifier.clear(); } catch (_) {}
+                    _mfaRecaptchaVerifier = null;
+                }
+                _mfaResolver = null;
+
                 authModal.classList.remove('hidden');
                 showStep('step-login');
                 if (messagesUnsubscribe) messagesUnsubscribe();
@@ -1289,8 +1327,8 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     // MFA state — хранится между шагами логина
-    let _mfaResolver = null;
-    let _mfaRecaptchaVerifier = null;
+    _mfaResolver = null;
+    _mfaRecaptchaVerifier = null;
 
     loginBtn.addEventListener('click', async () => {
         const username = loginUser.value.trim().toLowerCase();
@@ -1306,33 +1344,42 @@ document.addEventListener('DOMContentLoaded', () => {
             // Если MFA не включён — вход произойдёт здесь
         } catch (err) {
             if (err.code === 'auth/multi-factor-auth-required') {
-                // --- Начало MFA-потока ---
-                _mfaResolver = err.resolver;
-                const hint = _mfaResolver.hints[0];
-                document.getElementById('mfa-phone-hint').textContent = hint.phoneNumber || '';
+                try {
+                    // --- Начало MFA-потока ---
+                    _mfaResolver = err.resolver;
+                    const hint = _mfaResolver.hints[0];
+                    document.getElementById('mfa-phone-hint').textContent = hint.phoneNumber || '';
 
-                // Создаём невидимый reCAPTCHA для подписи SMS-запроса
-                if (_mfaRecaptchaVerifier) {
-                    _mfaRecaptchaVerifier.clear();
+                    // Создаём невидимый reCAPTCHA для подписи SMS-запроса
+                    if (_mfaRecaptchaVerifier) {
+                        _mfaRecaptchaVerifier.clear();
+                    }
+                    _mfaRecaptchaVerifier = new firebase.auth.RecaptchaVerifier(
+                        'mfa-recaptcha-container',
+                        { size: 'invisible' }
+                    );
+
+                    const phoneInfoOptions = {
+                        multiFactorHint: hint,
+                        session: _mfaResolver.session
+                    };
+                    const phoneAuthProvider = new firebase.auth.PhoneAuthProvider();
+                    const verificationId = await phoneAuthProvider.verifyPhoneNumber(
+                        phoneInfoOptions,
+                        _mfaRecaptchaVerifier
+                    );
+                    // Сохраняем verificationId в замыкании через атрибут кнопки
+                    document.getElementById('mfa-verify-btn').dataset.verificationId = verificationId;
+                    showStep('step-mfa-verify');
+                    document.getElementById('mfa-code').focus();
+                } catch (mfaInitErr) {
+                    showSnackbar('Ошибка запуска SMS: ' + mfaInitErr.message);
+                    if (_mfaRecaptchaVerifier) {
+                        try { _mfaRecaptchaVerifier.clear(); } catch (_) {}
+                        _mfaRecaptchaVerifier = null;
+                    }
+                    _mfaResolver = null;
                 }
-                _mfaRecaptchaVerifier = new firebase.auth.RecaptchaVerifier(
-                    'mfa-recaptcha-container',
-                    { size: 'invisible' }
-                );
-
-                const phoneInfoOptions = {
-                    multiFactorHint: hint,
-                    session: _mfaResolver.session
-                };
-                const phoneAuthProvider = new firebase.auth.PhoneAuthProvider();
-                const verificationId = await phoneAuthProvider.verifyPhoneNumber(
-                    phoneInfoOptions,
-                    _mfaRecaptchaVerifier
-                );
-                // Сохраняем verificationId в замыкании через атрибут кнопки
-                document.getElementById('mfa-verify-btn').dataset.verificationId = verificationId;
-                showStep('step-mfa-verify');
-                document.getElementById('mfa-code').focus();
             } else {
                 showSnackbar('Ошибка входа: ' + err.message);
             }
@@ -1437,7 +1484,10 @@ document.addEventListener('DOMContentLoaded', () => {
     });
     document.getElementById('close-settings-btn')?.addEventListener('click', closeSettings);
     document.getElementById('avatar-upload-trigger')?.addEventListener('click', () => document.getElementById('avatar-upload-input').click());
-    document.getElementById('settings-logout-btn')?.addEventListener('click', () => firebase.auth().signOut());
+    document.getElementById('settings-logout-btn')?.addEventListener('click', (e) => {
+        e.preventDefault();
+        firebase.auth().signOut().catch(err => showSnackbar('Ошибка: ' + err.message));
+    });
     document.getElementById('close-create-group-btn')?.addEventListener('click', closeCreateGroupModal);
     document.getElementById('close-group-settings-btn')?.addEventListener('click', closeGroupSettings);
     document.getElementById('group-delete-btn')?.addEventListener('click', deleteEntireGroupFromSettings);
@@ -1446,8 +1496,8 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('mob-nav-groups')?.addEventListener('click', () => switchTab('groups'));
 
     // --- MFA Setup Logic ---
-    let _mfaSetupRecaptcha = null;
-    let _mfaSetupVerificationId = null;
+    _mfaSetupRecaptcha = null;
+    _mfaSetupVerificationId = null;
 
     function refreshMfaStatus() {
         const user = firebase.auth().currentUser;
@@ -1551,12 +1601,15 @@ document.addEventListener('DOMContentLoaded', () => {
         } catch (e) {
             let msg = e.message;
             if (e.code === 'auth/requires-recent-login') msg = 'Для настройки 2FA нужно войти заново. Выйдите и войдите снова.';
-            if (e.code === 'auth/internal-error') msg = 'Внутренняя ошибка Firebase. Убедитесь что Phone Auth включён в консоли Firebase.';
+            if (e.code === 'auth/internal-error') msg = 'Внутренняя ошибка Firebase. Убедитесь, что SMS Multi-factor Authentication и Phone Auth включены в консоли Firebase (требуется переход на Identity Platform).';
+            if (e.code === 'auth/operation-not-allowed') msg = 'Эта операция не разрешена. Убедитесь, что в консоли Firebase (Authentication -> Sign-in method) включен Phone Auth и активирован SMS Multi-factor Authentication.';
+            if (e.code === 'auth/unsupported-first-factor') msg = 'Этот метод входа не поддерживает MFA. Требуется Email/пароль с верифицированным адресом.';
             if (e.code === 'auth/invalid-phone-number') msg = 'Неверный формат номера. Пример: +77001234567';
             showSnackbar('Ошибка: ' + msg);
             if (_mfaSetupRecaptcha) { try { _mfaSetupRecaptcha.clear(); } catch (_) {} _mfaSetupRecaptcha = null; }
+        } finally {
+            btn.disabled = false; btn.textContent = 'Отправить SMS';
         }
-        btn.disabled = false; btn.textContent = 'Отправить SMS';
     });
 
     document.getElementById('mfa-confirm-btn')?.addEventListener('click', async () => {
@@ -1581,6 +1634,7 @@ document.addEventListener('DOMContentLoaded', () => {
             let msg = e.message;
             if (e.code === 'auth/invalid-verification-code') msg = 'Неверный код. Попробуйте ещё раз.';
             showSnackbar('Ошибка: ' + msg);
+        } finally {
             btn.disabled = false; btn.textContent = 'Подтвердить и включить';
         }
     });
