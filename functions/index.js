@@ -38,11 +38,19 @@ exports.sendPushNotification = functions.firestore
         return null;
       }
 
-      // 4. Create the notification payload (Use DATA to bypass Firebase auto-interception)
+      // 4. Create the notification payload (Use both notification and data for cross-platform OS-level delivery)
       const payload = {
+        notification: {
+          title: `Новое сообщение от ${message.userName}`,
+          body: message.text,
+          icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d',
+          clickAction: 'https://maxawer1.web.app'
+        },
         data: {
           title: `Новое сообщение от ${message.userName}`,
           body: message.text,
+          chatId: chatId,
+          click_action: 'https://maxawer1.web.app'
         },
       };
 
