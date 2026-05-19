@@ -159,3 +159,76 @@ exports.cleanupUserAccount = functions.auth.user().onDelete(async (user) => {
   return null;
 });
 
+exports.sendGroupPushNotification = functions.firestore
+  .document("groups/{groupId}/messages/{messageId}")
+  .onCreate(async (snap, context) => {
+    const message = snap.data();
+    const groupId = context.params.groupId;
+
+    try {
+      // 1. Get the group document to find participants
+      const groupDoc = await admin.firestore().collection("groups").doc(groupId).get();
+      if (!groupDoc.exists) return null;
+
+      const groupData = groupDoc.data();
+      const participants = groupData.participants || [];
+
+      // 2. Filter out the sender
+      const receivers = participants.filter(id => id !== message.userId);
+      if (receivers.length === 0) return null;
+
+      // 3. For each receiver, get their FCM token
+      const tokensPromises = receivers.map(async (receiverId) => {
+        const userDoc = await admin.firestore().collection("users").doc(receiverId).get();
+        if (userDoc.exists) {
+          const userData = userDoc.data();
+          return userData.fcmToken || null;
+        }
+        return null;
+      });
+
+      const fcmTokens = (await Promise.all(tokensPromises)).filter(token => token !== null);
+      if (fcmTokens.length === 0) {
+        console.log("No FCM tokens found for group participants:", groupId);
+        return null;
+      }
+
+      // 4. Send notifications via FCM v1 to each token
+      const sendPromises = fcmTokens.map(async (fcmToken) => {
+        const messagePayload = {
+          token: fcmToken,
+          notification: {
+            title: `${groupData.name}: сообщение от ${message.userName}`,
+            body: message.text,
+          },
+          data: {
+            title: `${groupData.name}: сообщение от ${message.userName}`,
+            body: message.text,
+            chatId: groupId,
+            isGroup: "true",
+            click_action: 'https://maxawer1.web.app'
+          },
+          webpush: {
+            notification: {
+              icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d'
+            },
+            fcmOptions: {
+              link: 'https://maxawer1.web.app'
+            }
+          }
+        };
+        try {
+          const response = await admin.messaging().send(messagePayload);
+          console.log("Successfully sent group message via FCM v1 to token:", response);
+        } catch (err) {
+          console.error("Error sending group message to token:", err);
+        }
+      });
+
+      await Promise.all(sendPromises);
+    } catch (error) {
+      console.error("Error sending group push notifications:", error);
+    }
+
+    return null;
+  });
