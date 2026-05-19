@@ -1,0 +1,223 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>MThread Verification</title>
+  <style>
+    /* Reset styles */
+    body, p, h1, h2, a {
+      margin: 0;
+      padding: 0;
+      font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+    }
+    body {
+      background-color: #080B11;
+      color: #E2E8F0;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+    }
+    .wrapper {
+      width: 100%;
+      table-layout: fixed;
+      background-color: #080B11;
+      padding-bottom: 40px;
+    }
+    .main-table {
+      width: 100%;
+      max-width: 600px;
+      margin: 0 auto;
+      background-color: #0F131E;
+      border-radius: 32px;
+      border: 1px solid rgba(255, 255, 255, 0.06);
+      overflow: hidden;
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.5);
+    }
+    .header-gradient {
+      background: linear-gradient(135deg, #182235 0%, #0F131E 100%);
+      padding: 40px 40px 20px 40px;
+      text-align: center;
+    }
+    .logo-img {
+      width: 64px;
+      height: 64px;
+      margin-bottom: 16px;
+    }
+    .content-area {
+      padding: 20px 40px 40px 40px;
+    }
+    .welcome-title {
+      font-size: 28px;
+      font-weight: 900;
+      color: #FFFFFF;
+      margin-bottom: 12px;
+      text-align: center;
+      letter-spacing: -0.5px;
+    }
+    .welcome-title span {
+      background: linear-gradient(135deg, #60A5FA 0%, #C084FC 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      color: #60A5FA; /* Fallback */
+    }
+    .desc-text {
+      font-size: 15px;
+      line-height: 1.6;
+      color: #94A3B8;
+      margin-bottom: 32px;
+      text-align: center;
+    }
+    .btn-container {
+      text-align: center;
+      margin-bottom: 36px;
+    }
+    .action-btn {
+      display: inline-block;
+      padding: 16px 36px;
+      font-size: 15px;
+      font-weight: 700;
+      text-decoration: none;
+      color: #FFFFFF !important;
+      background: linear-gradient(135deg, #3B82F6 0%, #8B5CF6 100%);
+      border-radius: 20px;
+      box-shadow: 0 8px 24px rgba(59, 130, 246, 0.35);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .info-card {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.05);
+      border-radius: 24px;
+      padding: 24px;
+      margin-bottom: 32px;
+    }
+    .info-row {
+      margin-bottom: 12px;
+      font-size: 14px;
+    }
+    .info-row:last-child {
+      margin-bottom: 0;
+    }
+    .info-label {
+      color: #64748B;
+      font-weight: 500;
+    }
+    .info-value {
+      color: #F1F5F9;
+      font-weight: 600;
+      word-break: break-all;
+    }
+    .divider {
+      height: 1px;
+      background-color: rgba(255, 255, 255, 0.06);
+      margin: 32px 0;
+    }
+    .footer {
+      padding: 0 40px 40px 40px;
+      text-align: center;
+      font-size: 12px;
+      color: #475569;
+      line-height: 1.5;
+    }
+    .footer a {
+      color: #60A5FA;
+      text-decoration: none;
+    }
+    /* Responsive tweaks */
+    @media screen and (max-width: 520px) {
+      .main-table {
+        border-radius: 24px;
+      }
+      .header-gradient {
+        padding: 32px 24px 16px 24px;
+      }
+      .content-area {
+        padding: 16px 24px 32px 24px;
+      }
+      .welcome-title {
+        font-size: 24px;
+      }
+      .action-btn {
+        width: 100%;
+        box-sizing: border-box;
+        text-align: center;
+      }
+      .footer {
+        padding: 0 24px 32px 24px;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrapper">
+    <!-- Spacer above email -->
+    <table width="100%" border="0" cellspacing="0" cellpadding="0">
+      <tr>
+        <td height="40"></td>
+      </tr>
+    </table>
+
+    <table class="main-table" border="0" cellspacing="0" cellpadding="0" align="center">
+      <tr>
+        <td>
+          <!-- Header Area -->
+          <div class="header-gradient">
+            <!-- Glowing Security Graphic / Logo -->
+            <svg class="logo-img" viewBox="0 0 64 64" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <rect x="8" y="24" width="48" height="32" rx="10" fill="url(#paint0_linear)" stroke="#3B82F6" stroke-width="2"/>
+              <path d="M20 24V17C20 10.3726 25.3726 5 32 5C38.6274 5 44 10.3726 44 17V24" stroke="#8B5CF6" stroke-width="4" stroke-linecap="round"/>
+              <circle cx="32" cy="40" r="4" fill="#FFFFFF"/>
+              <path d="M32 44V48" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round"/>
+              <defs>
+                <linearGradient id="paint0_linear" x1="8" y1="24" x2="56" y2="56" gradientUnits="userSpaceOnUse">
+                  <stop stop-color="#1E3A8A"/>
+                  <stop offset="1" stop-color="#4C1D95"/>
+                </linearGradient>
+              </defs>
+            </svg>
+          </div>
+
+          <!-- Content Area -->
+          <div class="content-area">
+            <h1 class="welcome-title">Безопасность <span>MThread</span></h1>
+            <p class="desc-text">
+              Здравствуйте! Был получен запрос на подтверждение E-mail или смену пароля для вашей учетной записи в MThread Messenger. Пожалуйста, используйте защищенную кнопку ниже для завершения этой операции.
+            </p>
+
+            <!-- Action Button -->
+            <div class="btn-container">
+              <a href="{{{LINK}}}" class="action-btn" target="_blank">Подтвердить операцию</a>
+            </div>
+
+            <div class="info-card">
+              <div class="info-row">
+                <span class="info-label">Действие:</span>
+                <span class="info-value">Верификация E-mail / Восстановление доступа</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Адрес почты:</span>
+                <span class="info-value">{{{EMAIL}}}</span>
+              </div>
+              <div class="info-row">
+                <span class="info-label">Ссылка для ручного ввода:</span>
+                <span class="info-value"><a href="{{{LINK}}}" style="color: #60A5FA; text-decoration: none;">{{{LINK}}}</a></span>
+              </div>
+            </div>
+
+            <div class="divider"></div>
+
+            <p class="desc-text" style="font-size: 13px; margin-bottom: 0; text-align: left; line-height: 1.5;">
+              <strong style="color: #FFFFFF;">Важно:</strong> Данная ссылка активна в течение 1 часа. Если вы не запрашивали выполнение этой операции, просто проигнорируйте данное письмо. Ваш аккаунт останется в полной безопасности.
+            </p>
+          </div>
+
+          <!-- Footer Area -->
+          <div class="footer">
+            <p style="margin-bottom: 8px;">MThread Messenger • Premium Secure Communication Platform</p>
+            <p>© 2026 MThread. Все права защищены.</p>
+          </div>
+        </td>
+      </tr>
+    </table>
+  </div>
+</body>
+</html>

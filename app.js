@@ -1433,6 +1433,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const cred = firebase.auth.PhoneAuthProvider.credential(verificationId, code);
             const multiFactorAssertion = firebase.auth.PhoneMultiFactorGenerator.assertion(cred);
             await _mfaResolver.resolveSignIn(multiFactorAssertion);
+            if (_mfaRecaptchaVerifier) {
+                try { _mfaRecaptchaVerifier.clear(); } catch (_) {}
+                _mfaRecaptchaVerifier = null;
+            }
             _mfaResolver = null;
             document.getElementById('mfa-code').value = '';
         } catch (e) {
