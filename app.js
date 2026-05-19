@@ -140,8 +140,24 @@ document.addEventListener('DOMContentLoaded', () => {
                 settingsBio.value = userProfileData.bio || '';
             }
         } catch (e) { console.error(e); }
+
+        // Сброс окон настройки MFA
+        const form = document.getElementById('mfa-phone-setup-form');
+        const codeBlock = document.getElementById('mfa-setup-code-block');
+        const verifyBlock = document.getElementById('mfa-email-verify-block');
+        if (form) form.classList.add('hidden');
+        if (codeBlock) codeBlock.classList.add('hidden');
+        if (verifyBlock) verifyBlock.classList.add('hidden');
+
+        // Открытие модального окна
         settingsModal.classList.remove('hidden');
         settingsModal.style.display = 'flex';
+
+        // Обновление статусов с небольшой задержкой для надежности инициализации Firebase Auth
+        setTimeout(() => {
+            refreshMfaStatus();
+            updatePushUI();
+        }, 150);
     };
 
     window.closeSettings = () => {
@@ -1573,6 +1589,13 @@ document.addEventListener('DOMContentLoaded', () => {
         const setupBtn = document.getElementById('push-setup-btn');
         if (!statusText || !setupBtn) return;
         
+        if (window.AndroidApp) {
+            statusText.textContent = 'Включены (через Android-приложение).';
+            statusText.className = 'text-green-400 text-xs mt-0.5';
+            setupBtn.classList.add('hidden');
+            return;
+        }
+        
         if (!('Notification' in window)) {
             statusText.textContent = 'Не поддерживается вашим браузером.';
             setupBtn.classList.add('hidden');
@@ -1658,22 +1681,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    // Перехватываем оригинальную showSettings (async!) и вызываем refreshMfaStatus после неё
-    const _origShowSettings = window.showSettings;
-    window.showSettings = async function() {
-        if (_origShowSettings) await _origShowSettings();
-        // Небольшая задержка, чтобы дать Firebase обновить user object
-        setTimeout(() => {
-            refreshMfaStatus();
-            updatePushUI();
-        }, 150);
-        const form = document.getElementById('mfa-phone-setup-form');
-        const codeBlock = document.getElementById('mfa-setup-code-block');
-        const verifyBlock = document.getElementById('mfa-email-verify-block');
-        if (form) form.classList.add('hidden');
-        if (codeBlock) codeBlock.classList.add('hidden');
-        if (verifyBlock) verifyBlock.classList.add('hidden');
-    };
+    // Оригинальная функция showSettings обрабатывает всю логику сброса и обновления
 
     document.getElementById('mfa-setup-btn')?.addEventListener('click', async () => {
         const user = firebase.auth().currentUser;
