@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "681371275509",
+    "project_id": "maxawer1",
+    "storage_bucket": "maxawer1.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:681371275509:android:1dbc7b21b09b30bbda75bc",
+        "android_client_info": {
+          "package_name": "kz.mthread.messenger"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBGWbM0x0m1rsW-nfu1gZVRXqKI9K37xD0"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

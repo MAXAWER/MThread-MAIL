@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">MThread</string>
+    <string name="notification_channel_id">mthread_notifications</string>
+    <string name="notification_channel_name">Сообщения MThread</string>
+    <string name="notification_channel_description">Канал для получения уведомлений о новых сообщениях в MThread</string>
+</resources>

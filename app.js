@@ -299,8 +299,34 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    window.onNativeFcmTokenReceived = async function(token) {
+        console.log('Received native FCM token via callback:', token);
+        if (token && currentUser) {
+            try {
+                await db.collection('users').doc(currentUser.uid).set({ fcmToken: token }, { merge: true });
+                console.log('Native FCM token successfully saved to Firestore via callback');
+            } catch (err) {
+                console.error('Error saving native token via callback:', err);
+            }
+        }
+    };
+
     async function setupPushNotifications(interactive = false) {
         try {
+            // Поддержка нативных push-уведомлений для Android
+            if (window.AndroidApp && typeof window.AndroidApp.getNativeFcmToken === 'function') {
+                console.log('Detected native Android environment. Initializing native FCM...');
+                const token = window.AndroidApp.getNativeFcmToken();
+                if (token && currentUser) {
+                    await db.collection('users').doc(currentUser.uid).set({ fcmToken: token }, { merge: true });
+                    console.log('Saved initial native FCM token to Firestore:', token);
+                } else {
+                    console.log('Native FCM token is empty, waiting for callback...');
+                }
+                updatePushUI();
+                return;
+            }
+
             if (!('Notification' in window)) {
                 return;
             }
