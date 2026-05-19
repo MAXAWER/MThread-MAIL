@@ -343,11 +343,29 @@
                         <div id="mfa-setup-recaptcha"></div>
                     </div>
                     <!-- Email verification block for 2FA -->
-                    <div id="mfa-email-verify-block" class="hidden mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-center space-y-2">
-                        <p class="text-xs text-red-400">Для активации 2FA необходимо подтвердить ваш E-mail адрес.</p>
-                        <button id="mfa-send-verify-email-btn" type="button" class="w-full py-2.5 rounded-xl bg-red-500/20 text-white font-bold text-xs hover:bg-red-500/30 active:scale-95 transition-all">
-                            Отправить письмо с подтверждением
+                    <div id="mfa-email-verify-block" class="hidden mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/20 space-y-3 text-left">
+                        <p class="text-xs text-red-400 text-center font-semibold">Для активации 2FA необходимо привязать и подтвердить реальный E-mail адрес.</p>
+                        
+                        <div class="bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                            <label class="text-[9px] text-on-surface-variant uppercase font-bold tracking-wider mb-0.5 block">Текущий E-mail</label>
+                            <p id="mfa-current-email" class="text-xs text-white truncate">Загрузка...</p>
+                        </div>
+
+                        <!-- Смена почты -->
+                        <div class="bg-white/5 rounded-xl px-3 py-2 border border-white/5">
+                            <label class="text-[9px] text-on-surface-variant uppercase font-bold tracking-wider mb-0.5 block">Новый реальный E-mail</label>
+                            <input id="mfa-new-email-input" type="email" placeholder="email@example.com" class="bg-transparent border-none focus:ring-0 text-white w-full outline-none text-xs p-0">
+                        </div>
+                        
+                        <button id="mfa-change-email-btn" type="button" class="w-full py-2.5 rounded-xl bg-primary-container text-on-primary-container font-bold text-xs hover:brightness-110 active:scale-95 transition-all">
+                            Обновить E-mail
                         </button>
+
+                        <div class="border-t border-white/5 pt-3">
+                            <button id="mfa-send-verify-email-btn" type="button" class="w-full py-2.5 rounded-xl bg-red-500/20 text-white font-bold text-xs hover:bg-red-500/30 active:scale-95 transition-all">
+                                Отправить письмо с подтверждением
+                            </button>
+                        </div>
                     </div>
                 </div>
 

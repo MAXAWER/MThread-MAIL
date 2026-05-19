@@ -1554,7 +1554,7 @@ document.addEventListener('DOMContentLoaded', () => {
             statusText.className = 'text-on-surface-variant text-xs mt-0.5';
             setupBtn.classList.remove('hidden');
         } else {
-            statusText.textContent = 'Доступ заблокирован в браузере. Разрешите его (нажмите 🔒).';
+            statusText.textContent = 'Доступ заблокирован в браузере. Разрешите его в настройках сайта (нажмите на значок параметров 🎛️ или замок 🔒 слева от адреса).';
             statusText.className = 'text-red-400 text-xs mt-0.5';
             setupBtn.classList.add('hidden');
         }
@@ -1591,6 +1591,13 @@ document.addEventListener('DOMContentLoaded', () => {
             statusEl.textContent = 'Нет пользователя.';
             return;
         }
+        
+        // Update current email display
+        const currentEmailEl = document.getElementById('mfa-current-email');
+        if (currentEmailEl) {
+            currentEmailEl.textContent = user.email || 'Не указан';
+        }
+
         try {
             const factors = user.multiFactor?.enrolledFactors || [];
             const enrolled = factors.length > 0;
@@ -1633,16 +1640,34 @@ document.addEventListener('DOMContentLoaded', () => {
         if (verifyBlock) verifyBlock.classList.add('hidden');
     };
 
-    document.getElementById('mfa-setup-btn')?.addEventListener('click', () => {
+    document.getElementById('mfa-setup-btn')?.addEventListener('click', async () => {
         const user = firebase.auth().currentUser;
         if (!user) return;
+        
+        const btn = document.getElementById('mfa-setup-btn');
+        btn.disabled = true;
+        const originalText = btn.textContent;
+        btn.textContent = 'Загрузка...';
+        
+        try {
+            await user.reload();
+        } catch (e) {
+            console.warn('Не удалось обновить профиль пользователя:', e);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = originalText;
+        }
+        
+        // Refresh local user reference after reloading
+        const updatedUser = firebase.auth().currentUser;
+        
         let factors = [];
-        try { factors = user.multiFactor?.enrolledFactors || []; } catch (e) {}
+        try { factors = updatedUser.multiFactor?.enrolledFactors || []; } catch (e) {}
         const enrolled = factors.length > 0;
         if (enrolled) {
             if (!confirm('Вы уверены, что хотите отключить двухфакторную аутентификацию?')) return;
             const factor = factors[0];
-            user.multiFactor.unenroll(factor)
+            updatedUser.multiFactor.unenroll(factor)
                 .then(() => { showSnackbar('Двухфакторная аутентификация отключена.'); refreshMfaStatus(); })
                 .catch(e => showSnackbar('Ошибка: ' + e.message));
         } else {
@@ -1650,13 +1675,55 @@ document.addEventListener('DOMContentLoaded', () => {
             const verifyBlock = document.getElementById('mfa-email-verify-block');
             
             // Если e-mail не подтвержден, предлагаем подтвердить его
-            if (!user.emailVerified) {
+            if (!updatedUser.emailVerified) {
                 if (verifyBlock) verifyBlock.classList.toggle('hidden');
                 if (form) form.classList.add('hidden');
+                refreshMfaStatus();
             } else {
                 if (form) form.classList.toggle('hidden');
                 if (verifyBlock) verifyBlock.classList.add('hidden');
             }
+        }
+    });
+
+    document.getElementById('mfa-change-email-btn')?.addEventListener('click', async () => {
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+        const newEmailInput = document.getElementById('mfa-new-email-input');
+        const newEmail = newEmailInput ? newEmailInput.value.trim() : '';
+        if (!newEmail) {
+            showSnackbar('Пожалуйста, введите корректный адрес E-mail.');
+            return;
+        }
+        if (!newEmail.includes('@') || !newEmail.includes('.')) {
+            showSnackbar('Неверный формат E-mail адреса.');
+            return;
+        }
+        const btn = document.getElementById('mfa-change-email-btn');
+        btn.disabled = true;
+        btn.textContent = 'Обновление...';
+        try {
+            // Update auth email
+            await user.updateEmail(newEmail);
+            
+            // Update email in usernames firestore
+            const username = user.displayName;
+            if (username) {
+                await db.collection("usernames").doc(username).update({ email: newEmail });
+            }
+            
+            showSnackbar('Адрес E-mail успешно изменен на ' + newEmail + '. Пожалуйста, подтвердите его.');
+            if (newEmailInput) newEmailInput.value = '';
+            refreshMfaStatus();
+        } catch (e) {
+            let msg = e.message;
+            if (e.code === 'auth/requires-recent-login') {
+                msg = 'Для изменения адреса электронной почты требуется недавний вход в систему. Пожалуйста, выйдите из аккаунта и войдите заново.';
+            }
+            showSnackbar('Ошибка обновления: ' + msg);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Обновить E-mail';
         }
     });
 
