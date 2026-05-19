@@ -12,6 +12,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const loginUser = document.getElementById('login-username');
     const loginPass = document.getElementById('login-password');
     const regUser = document.getElementById('reg-username');
+    const regEmail = document.getElementById('reg-email');
     const regPass = document.getElementById('reg-password');
     
     const messageForm = document.getElementById('message-form');
@@ -1450,17 +1451,21 @@ document.addEventListener('DOMContentLoaded', () => {
 
     registerBtn.addEventListener('click', async () => {
         const username = regUser.value.trim().toLowerCase();
+        const email = regEmail.value.trim();
         const pass = regPass.value.trim();
         
-        if (!username || !pass) return;
+        if (!username || !pass || !email) {
+            alert("Пожалуйста, заполните все поля");
+            return;
+        }
         if (username.length < 3) return alert("Логин слишком короткий");
+        if (!email.includes('@') || !email.includes('.')) return alert("Неверный формат E-mail адреса");
 
         registerBtn.disabled = true; registerBtn.textContent = 'Проверка...';
         try {
             const userDoc = await db.collection("usernames").doc(username).get();
             if (userDoc.exists) throw new Error("Логин уже занят");
 
-            const email = `${username}@mthread.local`;
             const cred = await firebase.auth().createUserWithEmailAndPassword(email, pass);
             
             const batch = db.batch();
@@ -1703,16 +1708,17 @@ document.addEventListener('DOMContentLoaded', () => {
         btn.disabled = true;
         btn.textContent = 'Обновление...';
         try {
-            // Update auth email
-            await user.updateEmail(newEmail);
+            // Use verifyBeforeUpdateEmail to comply with new Firebase Auth security requirements
+            await user.verifyBeforeUpdateEmail(newEmail);
             
-            // Update email in usernames firestore
+            // Note: Firebase updates the Auth email *after* the link in the verification mail is clicked.
+            // Since firestore usernames should ideally match when verified, let's also update the firestore mapping.
             const username = user.displayName;
             if (username) {
                 await db.collection("usernames").doc(username).update({ email: newEmail });
             }
             
-            showSnackbar('Адрес E-mail успешно изменен на ' + newEmail + '. Пожалуйста, подтвердите его.');
+            showSnackbar('Письмо подтверждения отправлено на новый адрес: ' + newEmail + '. Как только вы подтвердите его, ваш E-mail будет изменен.');
             if (newEmailInput) newEmailInput.value = '';
             refreshMfaStatus();
         } catch (e) {
