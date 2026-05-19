@@ -308,6 +308,17 @@
                     </div>
                 </div>
                 
+                <!-- Push Notifications Section -->
+                <div class="bg-white/5 rounded-2xl p-4 mt-2 border border-white/5">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-white font-semibold text-sm">Push-уведомления</p>
+                            <p id="push-status-text" class="text-on-surface-variant text-xs mt-0.5">Загрузка...</p>
+                        </div>
+                        <button id="push-setup-btn" type="button" class="text-sm font-bold bg-primary-container/20 text-primary-container px-4 py-2 rounded-xl hover:bg-primary-container/40 transition-all hidden">Включить</button>
+                    </div>
+                </div>
+                
                 <!-- MFA Setup Section -->
                 <div class="bg-white/5 rounded-2xl p-4 mt-2 border border-white/5">
                     <div class="flex items-center justify-between">
@@ -330,6 +341,13 @@
                             <button id="mfa-confirm-btn" type="button" class="w-full py-3 rounded-xl bg-primary-container text-on-primary-container font-bold text-sm hover:brightness-110 transition-all">Подтвердить и включить</button>
                         </div>
                         <div id="mfa-setup-recaptcha"></div>
+                    </div>
+                    <!-- Email verification block for 2FA -->
+                    <div id="mfa-email-verify-block" class="hidden mt-4 p-4 rounded-xl bg-red-500/10 border border-red-500/20 text-center space-y-2">
+                        <p class="text-xs text-red-400">Для активации 2FA необходимо подтвердить ваш E-mail адрес.</p>
+                        <button id="mfa-send-verify-email-btn" type="button" class="w-full py-2.5 rounded-xl bg-red-500/20 text-white font-bold text-xs hover:bg-red-500/30 active:scale-95 transition-all">
+                            Отправить письмо с подтверждением
+                        </button>
                     </div>
                 </div>
 

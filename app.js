@@ -298,33 +298,63 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
-    async function setupPushNotifications() {
+    async function setupPushNotifications(interactive = false) {
         try {
+            if (!('Notification' in window)) {
+                return;
+            }
+
+            const currentPermission = Notification.permission;
+            
+            // Если вызов автоматический и разрешение еще не выдано — тихо выходим и обновляем UI
+            if (!interactive && currentPermission !== 'granted') {
+                updatePushUI();
+                return;
+            }
+
+            let registration = null;
             // Force update Service Worker to clear old cache
             if ('serviceWorker' in navigator) {
-                const registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
+                registration = await navigator.serviceWorker.register('/firebase-messaging-sw.js');
                 await registration.update();
             }
 
             const messaging = firebase.messaging();
-            const permission = await Notification.requestPermission();
+            
+            // Если интерактивно — запрашиваем разрешение
+            let permission = currentPermission;
+            if (interactive) {
+                permission = await Notification.requestPermission();
+            }
             
             if (permission === 'denied') {
-                showSnackbar('Уведомления заблокированы. Нажмите на 🔒 слева от адреса сайта!');
+                if (interactive) {
+                    showSnackbar('Уведомления заблокированы. Нажмите на 🔒 слева от адреса сайта!');
+                }
+                updatePushUI();
                 return;
             }
             
             if (permission === 'granted') {
                 try {
-                    const token = await messaging.getToken({ vapidKey: 'BP_hWM1RFB245Rad_lsjHtMQTM5u0ybQbEhQ8DZTbcAh7PwXIubn6TtAt295pptU8LUYrC7qnf9vPrIjBcQk2kU' });
+                    const tokenOptions = {
+                        vapidKey: 'BP_hWM1RFB245Rad_lsjHtMQTM5u0ybQbEhQ8DZTbcAh7PwXIubn6TtAt295pptU8LUYrC7qnf9vPrIjBcQk2kU'
+                    };
+                    if (registration) {
+                        tokenOptions.serviceWorkerRegistration = registration;
+                    }
+                    const token = await messaging.getToken(tokenOptions);
                     if (token) {
                         await db.collection('users').doc(currentUser.uid).set({ fcmToken: token }, { merge: true });
                     }
                 } catch (tokenError) {
                     console.error('Token error:', tokenError);
-                    showSnackbar('Ошибка токена: ' + tokenError.message);
+                    if (interactive) {
+                        showSnackbar('Ошибка настройки уведомлений: ' + tokenError.message);
+                    }
                 }
             }
+            
             messaging.onMessage((payload) => {
                 const title = payload.data ? payload.data.title : (payload.notification ? payload.notification.title : 'Новое сообщение');
                 const body = payload.data ? payload.data.body : (payload.notification ? payload.notification.body : '');
@@ -338,9 +368,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     });
                 }
             });
+            updatePushUI();
         } catch (error) { 
             console.error('Push setup failed:', error); 
-            showSnackbar('Ошибка уведомлений: ' + error.message);
+            if (interactive) {
+                showSnackbar('Ошибка уведомлений: ' + error.message);
+            }
+            updatePushUI();
         }
     }
 
@@ -1499,6 +1533,55 @@ document.addEventListener('DOMContentLoaded', () => {
     _mfaSetupRecaptcha = null;
     _mfaSetupVerificationId = null;
 
+    function updatePushUI() {
+        const statusText = document.getElementById('push-status-text');
+        const setupBtn = document.getElementById('push-setup-btn');
+        if (!statusText || !setupBtn) return;
+        
+        if (!('Notification' in window)) {
+            statusText.textContent = 'Не поддерживается вашим браузером.';
+            setupBtn.classList.add('hidden');
+            return;
+        }
+        
+        const permission = Notification.permission;
+        if (permission === 'granted') {
+            statusText.textContent = 'Включены. Вы будете получать важные сообщения.';
+            statusText.className = 'text-green-400 text-xs mt-0.5';
+            setupBtn.classList.add('hidden');
+        } else if (permission === 'default') {
+            statusText.textContent = 'Не настроены. Включите, чтобы не пропустить сообщения.';
+            statusText.className = 'text-on-surface-variant text-xs mt-0.5';
+            setupBtn.classList.remove('hidden');
+        } else {
+            statusText.textContent = 'Доступ заблокирован в браузере. Разрешите его (нажмите 🔒).';
+            statusText.className = 'text-red-400 text-xs mt-0.5';
+            setupBtn.classList.add('hidden');
+        }
+    }
+
+    document.getElementById('push-setup-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('push-setup-btn');
+        btn.disabled = true;
+        btn.textContent = 'Включение...';
+        try {
+            const permission = await Notification.requestPermission();
+            updatePushUI();
+            if (permission === 'granted') {
+                showSnackbar('Уведомления успешно включены!');
+                await setupPushNotifications(true);
+            } else if (permission === 'denied') {
+                showSnackbar('Доступ отклонен. Разрешите уведомления в настройках сайта.');
+            }
+        } catch (e) {
+            showSnackbar('Ошибка запроса прав: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Включить';
+            updatePushUI();
+        }
+    });
+
     function refreshMfaStatus() {
         const user = firebase.auth().currentUser;
         const statusEl = document.getElementById('mfa-status-text');
@@ -1538,11 +1621,16 @@ document.addEventListener('DOMContentLoaded', () => {
     window.showSettings = async function() {
         if (_origShowSettings) await _origShowSettings();
         // Небольшая задержка, чтобы дать Firebase обновить user object
-        setTimeout(() => refreshMfaStatus(), 150);
+        setTimeout(() => {
+            refreshMfaStatus();
+            updatePushUI();
+        }, 150);
         const form = document.getElementById('mfa-phone-setup-form');
         const codeBlock = document.getElementById('mfa-setup-code-block');
+        const verifyBlock = document.getElementById('mfa-email-verify-block');
         if (form) form.classList.add('hidden');
         if (codeBlock) codeBlock.classList.add('hidden');
+        if (verifyBlock) verifyBlock.classList.add('hidden');
     };
 
     document.getElementById('mfa-setup-btn')?.addEventListener('click', () => {
@@ -1559,7 +1647,33 @@ document.addEventListener('DOMContentLoaded', () => {
                 .catch(e => showSnackbar('Ошибка: ' + e.message));
         } else {
             const form = document.getElementById('mfa-phone-setup-form');
-            if (form) form.classList.toggle('hidden');
+            const verifyBlock = document.getElementById('mfa-email-verify-block');
+            
+            // Если e-mail не подтвержден, предлагаем подтвердить его
+            if (!user.emailVerified) {
+                if (verifyBlock) verifyBlock.classList.toggle('hidden');
+                if (form) form.classList.add('hidden');
+            } else {
+                if (form) form.classList.toggle('hidden');
+                if (verifyBlock) verifyBlock.classList.add('hidden');
+            }
+        }
+    });
+
+    document.getElementById('mfa-send-verify-email-btn')?.addEventListener('click', async () => {
+        const user = firebase.auth().currentUser;
+        if (!user) return;
+        const btn = document.getElementById('mfa-send-verify-email-btn');
+        btn.disabled = true;
+        btn.textContent = 'Отправка...';
+        try {
+            await user.sendEmailVerification();
+            showSnackbar('Письмо отправлено на ' + user.email + '. Подтвердите E-mail и обновите страницу.');
+            btn.textContent = 'Письмо отправлено';
+        } catch (e) {
+            showSnackbar('Ошибка отправки: ' + e.message);
+            btn.disabled = false;
+            btn.textContent = 'Отправить письмо с подтверждением';
         }
     });
 
@@ -1600,11 +1714,19 @@ document.addEventListener('DOMContentLoaded', () => {
             showSnackbar('SMS отправлен! Введите код подтверждения.');
         } catch (e) {
             let msg = e.message;
-            if (e.code === 'auth/requires-recent-login') msg = 'Для настройки 2FA нужно войти заново. Выйдите и войдите снова.';
-            if (e.code === 'auth/internal-error') msg = 'Внутренняя ошибка Firebase. Убедитесь, что SMS Multi-factor Authentication и Phone Auth включены в консоли Firebase (требуется переход на Identity Platform).';
-            if (e.code === 'auth/operation-not-allowed') msg = 'Эта операция не разрешена. Убедитесь, что в консоли Firebase (Authentication -> Sign-in method) включен Phone Auth и активирован SMS Multi-factor Authentication.';
-            if (e.code === 'auth/unsupported-first-factor') msg = 'Этот метод входа не поддерживает MFA. Требуется Email/пароль с верифицированным адресом.';
-            if (e.code === 'auth/invalid-phone-number') msg = 'Неверный формат номера. Пример: +77001234567';
+            if (e.code === 'auth/unverified-email') {
+                msg = 'Для настройки 2FA необходимо подтвердить адрес почты. Воспользуйтесь формой подтверждения.';
+                const verifyBlock = document.getElementById('mfa-email-verify-block');
+                if (verifyBlock) verifyBlock.classList.remove('hidden');
+                const form = document.getElementById('mfa-phone-setup-form');
+                if (form) form.classList.add('hidden');
+            } else {
+                if (e.code === 'auth/requires-recent-login') msg = 'Для настройки 2FA нужно войти заново. Выйдите и войдите снова.';
+                if (e.code === 'auth/internal-error') msg = 'Внутренняя ошибка Firebase. Убедитесь, что SMS Multi-factor Authentication и Phone Auth включены в консоли Firebase (требуется переход на Identity Platform).';
+                if (e.code === 'auth/operation-not-allowed') msg = 'Эта операция не разрешена. Убедитесь, что в консоли Firebase (Authentication -> Sign-in method) включен Phone Auth и активирован SMS Multi-factor Authentication.';
+                if (e.code === 'auth/unsupported-first-factor') msg = 'Этот метод входа не поддерживает MFA. Требуется Email/пароль с верифицированным адресом.';
+                if (e.code === 'auth/invalid-phone-number') msg = 'Неверный формат номера. Пример: +77001234567';
+            }
             showSnackbar('Ошибка: ' + msg);
             if (_mfaSetupRecaptcha) { try { _mfaSetupRecaptcha.clear(); } catch (_) {} _mfaSetupRecaptcha = null; }
         } finally {
