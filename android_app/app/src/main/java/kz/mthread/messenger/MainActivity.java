@@ -1,7 +1,9 @@
 package kz.mthread.messenger;
 
 import android.Manifest;
+import android.content.Context;
 import android.content.pm.PackageManager;
+import android.media.AudioManager;
 import android.os.Build;
 import android.os.Bundle;
 import android.util.Log;
@@ -303,6 +305,27 @@ public class MainActivity extends AppCompatActivity {
                     registerProximityListener();
                 } else {
                     unregisterProximityListener();
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void setSpeakerphoneOn(final boolean on) {
+            runOnUiThread(() -> {
+                try {
+                    AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                    if (audioManager != null) {
+                        if (on) {
+                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                            audioManager.setSpeakerphoneOn(true);
+                        } else {
+                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                            audioManager.setSpeakerphoneOn(false);
+                        }
+                        Log.d(TAG, "Speakerphone set to: " + on);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error setting speakerphone", e);
                 }
             });
         }

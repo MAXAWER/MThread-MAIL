@@ -1975,6 +1975,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentCallId = null;
     let callListenerUnsubscribe = null;
     let isCallMuted = false;
+    let isSpeakerOn = true;
     let activeCallUnsubscribe = null;
     let activeCandidatesUnsubscribe = null;
 
@@ -2143,7 +2144,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             peerConnection.ontrack = event => {
                 const remoteAudio = document.getElementById('remote-audio');
-                if (remoteAudio) remoteAudio.srcObject = event.streams[0];
+                if (remoteAudio) {
+                    remoteAudio.srcObject = event.streams[0];
+                    remoteAudio.play().catch(err => console.error("Error playing remote audio:", err));
+                }
             };
 
             const offer = await peerConnection.createOffer();
@@ -2161,6 +2165,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         document.getElementById('call-status').textContent = 'Разговор';
                         stopRinging();
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+                        
+                        isSpeakerOn = true;
+                        updateSpeakerUI();
+                        if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
+                            window.AndroidApp.setSpeakerphoneOn(true);
+                        }
                     } else if (data.status === 'ended') {
                         cleanupCallUI();
                     }
@@ -2225,7 +2235,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             peerConnection.ontrack = event => {
                 const remoteAudio = document.getElementById('remote-audio');
-                if (remoteAudio) remoteAudio.srcObject = event.streams[0];
+                if (remoteAudio) {
+                    remoteAudio.srcObject = event.streams[0];
+                    remoteAudio.play().catch(err => console.error("Error playing remote audio:", err));
+                }
             };
 
             await peerConnection.setRemoteDescription(new RTCSessionDescription(callData.offer));
@@ -2238,6 +2251,12 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             document.getElementById('call-status').textContent = 'Разговор';
+
+            isSpeakerOn = true;
+            updateSpeakerUI();
+            if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
+                window.AndroidApp.setSpeakerphoneOn(true);
+            }
 
             // Listen for candidates from caller
             activeCandidatesUnsubscribe = callDocRef.collection('callerCandidates').onSnapshot(snapshot => {
@@ -2308,6 +2327,12 @@ document.addEventListener('DOMContentLoaded', () => {
         currentCallId = null;
         isCallMuted = false;
         document.getElementById('mute-icon').textContent = 'mic';
+        
+        isSpeakerOn = true;
+        updateSpeakerUI();
+        if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
+            window.AndroidApp.setSpeakerphoneOn(false);
+        }
     }
 
     function toggleMute() {
@@ -2318,8 +2343,35 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function toggleSpeaker() {
+        if (peerConnection) {
+            isSpeakerOn = !isSpeakerOn;
+            updateSpeakerUI();
+            if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
+                window.AndroidApp.setSpeakerphoneOn(isSpeakerOn);
+            }
+        }
+    }
+
+    function updateSpeakerUI() {
+        const btn = document.getElementById('btn-speaker-call');
+        const icon = document.getElementById('speaker-icon');
+        if (btn && icon) {
+            if (isSpeakerOn) {
+                btn.classList.add('bg-primary-container', 'text-on-primary-container');
+                btn.classList.remove('bg-white/5', 'text-white');
+                icon.textContent = 'volume_up';
+            } else {
+                btn.classList.remove('bg-primary-container', 'text-on-primary-container');
+                btn.classList.add('bg-white/5', 'text-white');
+                icon.textContent = 'volume_down';
+            }
+        }
+    }
+
     // Call Actions Click Bindings
     document.getElementById('btn-mute-call').addEventListener('click', toggleMute);
+    document.getElementById('btn-speaker-call').addEventListener('click', toggleSpeaker);
     document.getElementById('btn-accept-call').addEventListener('click', acceptCall);
     document.getElementById('btn-hangup-call').addEventListener('click', hangupCall);
 
