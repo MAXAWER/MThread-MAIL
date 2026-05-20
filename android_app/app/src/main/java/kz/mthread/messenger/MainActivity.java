@@ -53,6 +53,7 @@ public class MainActivity extends AppCompatActivity {
         webSettings.setDatabaseEnabled(true);
         webSettings.setAllowFileAccess(true);
         webSettings.setCacheMode(WebSettings.LOAD_DEFAULT);
+        webSettings.setMediaPlaybackRequiresUserGesture(false);
 
         // Keep navigation inside WebView
         myWebView.setWebViewClient(new WebViewClient() {
@@ -305,6 +306,17 @@ public class MainActivity extends AppCompatActivity {
                     registerProximityListener();
                 } else {
                     unregisterProximityListener();
+                    // Hard reset audio routing when call is terminated
+                    try {
+                        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                        if (audioManager != null) {
+                            audioManager.setSpeakerphoneOn(false);
+                            audioManager.setMode(AudioManager.MODE_NORMAL);
+                            Log.d(TAG, "Audio mode forced to MODE_NORMAL on call completion");
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error resetting audio mode on call completion", e);
+                    }
                 }
             });
         }
@@ -319,8 +331,8 @@ public class MainActivity extends AppCompatActivity {
                             audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
                             audioManager.setSpeakerphoneOn(true);
                         } else {
-                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
                             audioManager.setSpeakerphoneOn(false);
+                            audioManager.setMode(AudioManager.MODE_NORMAL);
                         }
                         Log.d(TAG, "Speakerphone set to: " + on);
                     }

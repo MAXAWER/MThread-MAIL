@@ -2386,7 +2386,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
     window.onProximityChanged = function(isNear) {
         console.log("Proximity changed from native side:", isNear);
-        // Dim UI or handle mute/visual optimization if screen turns off
+        if (peerConnection) {
+            isSpeakerOn = !isNear;
+            updateSpeakerUI();
+            if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
+                window.AndroidApp.setSpeakerphoneOn(isSpeakerOn);
+            }
+        }
     };
 
 
