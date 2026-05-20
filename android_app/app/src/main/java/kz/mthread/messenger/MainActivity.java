@@ -25,6 +25,14 @@ import android.hardware.SensorEvent;
 import android.hardware.SensorEventListener;
 import android.hardware.SensorManager;
 import android.os.PowerManager;
+import android.app.Activity;
+import android.content.Intent;
+import android.content.ClipData;
+import android.content.ActivityNotFoundException;
+import android.net.Uri;
+import android.webkit.ValueCallback;
+import android.webkit.DownloadListener;
+import android.webkit.URLUtil;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -32,6 +40,8 @@ public class MainActivity extends AppCompatActivity {
     private WebView myWebView;
     private static final int PERMISSION_REQUEST_CODE = 112;
     private String nativeFcmToken = "";
+    private ValueCallback<Uri[]> uploadMessage;
+    private final static int FILECHOOSER_RESULTCODE = 1;
 
     private SensorManager sensorManager;
     private Sensor proximitySensor;
@@ -85,16 +95,69 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
-        // Grant WebRTC microphone/camera permissions to the WebView
+        // Grant WebRTC microphone/camera permissions and handle file selection to the WebView
         myWebView.setWebChromeClient(new WebChromeClient() {
             @Override
             public void onPermissionRequest(final PermissionRequest request) {
                 runOnUiThread(() -> request.grant(request.getResources()));
             }
+
+            @Override
+            public boolean onShowFileChooser(WebView webView, ValueCallback<Uri[]> filePathCallback, WebChromeClient.FileChooserParams fileChooserParams) {
+                if (uploadMessage != null) {
+                    uploadMessage.onReceiveValue(null);
+                    uploadMessage = null;
+                }
+                uploadMessage = filePathCallback;
+                
+                Intent intent = fileChooserParams.createIntent();
+                try {
+                    startActivityForResult(intent, FILECHOOSER_RESULTCODE);
+                } catch (ActivityNotFoundException e) {
+                    uploadMessage = null;
+                    Toast.makeText(MainActivity.this, "Не удалось открыть выбор файлов", Toast.LENGTH_SHORT).show();
+                    return false;
+                }
+                return true;
+            }
         });
 
         // Inject JS Bridge Interface
         myWebView.addJavascriptInterface(new WebAppInterface(), "AndroidApp");
+
+        // Support downloads inside the WebView using system DownloadManager
+        myWebView.setDownloadListener(new DownloadListener() {
+            @Override
+            public void onDownloadStart(String url, String userAgent, String contentDisposition, String mimeType, long contentLength) {
+                try {
+                    android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(Uri.parse(url));
+                    request.setMimeType(mimeType);
+                    String cookies = android.webkit.CookieManager.getInstance().getCookie(url);
+                    request.addRequestHeader("cookie", cookies);
+                    request.addRequestHeader("User-Agent", userAgent);
+                    request.setDescription("Скачивание файла...");
+                    String filename = URLUtil.guessFileName(url, contentDisposition, mimeType);
+                    request.setTitle(filename);
+                    request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename);
+                    
+                    android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                    if (dm != null) {
+                        dm.enqueue(request);
+                        Toast.makeText(MainActivity.this, "Скачивание файла началось", Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error downloading file", e);
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                        startActivity(intent);
+                    } catch (Exception ex) {
+                        Log.e(TAG, "Error opening download URL in browser", ex);
+                        Toast.makeText(MainActivity.this, "Не удалось скачать файл", Toast.LENGTH_SHORT).show();
+                    }
+                }
+            }
+        });
 
         // Load our deployed Messenger URL
         myWebView.loadUrl("https://mthread.kz");
@@ -226,6 +289,9 @@ public class MainActivity extends AppCompatActivity {
         if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
             list.add(Manifest.permission.RECORD_AUDIO);
         }
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            list.add(Manifest.permission.CAMERA);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 list.add(Manifest.permission.POST_NOTIFICATIONS);
@@ -249,6 +315,30 @@ public class MainActivity extends AppCompatActivity {
             if (micGranted) {
                 Toast.makeText(this, "Доступ к микрофону разрешен", Toast.LENGTH_SHORT).show();
             }
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == FILECHOOSER_RESULTCODE) {
+            if (uploadMessage == null) return;
+            Uri[] results = null;
+            if (resultCode == Activity.RESULT_OK && data != null) {
+                String dataString = data.getDataString();
+                ClipData clipData = data.getClipData();
+                if (clipData != null) {
+                    results = new Uri[clipData.getItemCount()];
+                    for (int i = 0; i < clipData.getItemCount(); i++) {
+                        ClipData.Item item = clipData.getItemAt(i);
+                        results[i] = item.getUri();
+                    }
+                } else if (dataString != null) {
+                    results = new Uri[]{Uri.parse(dataString)};
+                }
+            }
+            uploadMessage.onReceiveValue(results);
+            uploadMessage = null;
         }
     }
 
