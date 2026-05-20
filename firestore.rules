@@ -100,5 +100,20 @@ service cloud.firestore {
                       && resource.data.userId == request.auth.uid;
       }
     }
+
+    // calls (WebRTC signaling)
+    match /calls/{callId} {
+      allow read, write: if isAuth() && (
+        (resource == null && request.auth.uid == request.resource.data.callerId) ||
+        (resource != null && (request.auth.uid == resource.data.callerId || request.auth.uid == resource.data.receiverId))
+      );
+      
+      match /callerCandidates/{candidateId} {
+        allow read, write: if isAuth();
+      }
+      match /receiverCandidates/{candidateId} {
+        allow read, write: if isAuth();
+      }
+    }
   }
 }
