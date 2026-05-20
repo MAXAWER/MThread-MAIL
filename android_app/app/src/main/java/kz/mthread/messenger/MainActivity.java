@@ -15,6 +15,12 @@ import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import com.google.firebase.messaging.FirebaseMessaging;
+import androidx.activity.OnBackPressedCallback;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
+import android.os.PowerManager;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -22,6 +28,12 @@ public class MainActivity extends AppCompatActivity {
     private WebView myWebView;
     private static final int PERMISSION_REQUEST_CODE = 112;
     private String nativeFcmToken = "";
+
+    private SensorManager sensorManager;
+    private Sensor proximitySensor;
+    private PowerManager.WakeLock proximityWakeLock;
+    private boolean isCallActive = false;
+    private SensorEventListener proximitySensorListener;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -42,7 +54,16 @@ public class MainActivity extends AppCompatActivity {
         myWebView.setWebViewClient(new WebViewClient() {
             @Override
             public boolean shouldOverrideUrlLoading(WebView view, String url) {
-                view.loadUrl(url);
+                if (url.startsWith("https://mthread.kz") || url.startsWith("https://maxawer1.web.app") || url.startsWith("http://mthread.kz")) {
+                    return false; // Load inside WebView
+                }
+                // Open external links in external system browser
+                try {
+                    android.content.Intent intent = new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url));
+                    startActivity(intent);
+                } catch (Exception e) {
+                    Log.e(TAG, "Error opening external URL", e);
+                }
                 return true;
             }
             
@@ -63,13 +84,107 @@ public class MainActivity extends AppCompatActivity {
         myWebView.addJavascriptInterface(new WebAppInterface(), "AndroidApp");
 
         // Load our deployed Messenger URL
-        myWebView.loadUrl("https://maxawer1.web.app");
+        myWebView.loadUrl("https://mthread.kz");
 
         // Pre-fetch Firebase Cloud Messaging Token
         fetchFcmToken();
 
         // Request Push Notification permission for Android 13+ (API 33+)
         requestNotificationPermission();
+
+        // Handle initial notification intent if app was closed
+        handleNotificationIntent(getIntent());
+
+        // Handle back press using modern OnBackPressedDispatcher
+        getOnBackPressedDispatcher().addCallback(this, new OnBackPressedCallback(true) {
+            @Override
+            public void handleOnBackPressed() {
+                if (myWebView != null) {
+                    myWebView.evaluateJavascript("window.handleAndroidBackGesture ? window.handleAndroidBackGesture() : false", value -> {
+                        Log.d(TAG, "Back gesture handler returned: " + value);
+                        if ("true".equals(value) || "\"true\"".equals(value)) {
+                            Log.d(TAG, "Back gesture was handled by WebView JS.");
+                        } else {
+                            runOnUiThread(() -> {
+                                // Always minimize the app if the back gesture is not consumed by Web UI,
+                                // since MThread is a Single Page Application.
+                                moveTaskToBack(true);
+                            });
+                        }
+                    });
+                } else {
+                    setEnabled(false);
+                    MainActivity.super.onBackPressed();
+                    setEnabled(true);
+                }
+            }
+        });
+
+        // Initialize Proximity Sensor and WakeLock for calling
+        sensorManager = (SensorManager) getSystemService(SENSOR_SERVICE);
+        if (sensorManager != null) {
+            proximitySensor = sensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY);
+        }
+
+        PowerManager powerManager = (PowerManager) getSystemService(POWER_SERVICE);
+        if (powerManager != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+            try {
+                if (powerManager.isWakeLockLevelSupported(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK)) {
+                    proximityWakeLock = powerManager.newWakeLock(PowerManager.PROXIMITY_SCREEN_OFF_WAKE_LOCK, "MThread:ProximityWakeLock");
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Error creating proximity wake lock", e);
+            }
+        }
+
+        proximitySensorListener = new SensorEventListener() {
+            @Override
+            public void onSensorChanged(SensorEvent event) {
+                if (event.sensor.getType() == Sensor.TYPE_PROXIMITY) {
+                    boolean isNear = event.values[0] < event.sensor.getMaximumRange();
+                    Log.d(TAG, "Proximity sensor: isNear=" + isNear);
+                    if (isNear) {
+                        if (proximityWakeLock != null && !proximityWakeLock.isHeld()) {
+                            proximityWakeLock.acquire();
+                        }
+                        sendProximityToJs(true);
+                    } else {
+                        if (proximityWakeLock != null && proximityWakeLock.isHeld()) {
+                            proximityWakeLock.release();
+                        }
+                        sendProximityToJs(false);
+                    }
+                }
+            }
+
+            @Override
+            public void onAccuracyChanged(Sensor sensor, int accuracy) {}
+        };
+    }
+
+    @Override
+    protected void onNewIntent(android.content.Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+        handleNotificationIntent(intent);
+    }
+
+    private void handleNotificationIntent(android.content.Intent intent) {
+        if (intent != null && intent.hasExtra("chatId")) {
+            String chatId = intent.getStringExtra("chatId");
+            String isGroup = intent.getStringExtra("isGroup");
+            Log.d(TAG, "Notification Intent received. chatId: " + chatId + ", isGroup: " + isGroup);
+            if (chatId != null && !chatId.isEmpty()) {
+                runOnUiThread(() -> {
+                    if (myWebView != null) {
+                        myWebView.evaluateJavascript(
+                            "if (typeof openChatFromNotification === 'function') { openChatFromNotification('" + chatId + "', '" + isGroup + "'); } else { window.pendingNotificationChat = { chatId: '" + chatId + "', isGroup: '" + isGroup + "' }; }",
+                            null
+                        );
+                    }
+                });
+            }
+        }
     }
 
     private void fetchFcmToken() {
@@ -116,14 +231,41 @@ public class MainActivity extends AppCompatActivity {
         }
     }
 
-    @Override
-    public void onBackPressed() {
-        // Handle physical back button navigating WebView history instead of closing app
-        if (myWebView.canGoBack()) {
-            myWebView.goBack();
-        } else {
-            super.onBackPressed();
+    // Legacy onBackPressed overridden callback removed in favor of OnBackPressedDispatcher registered in onCreate
+
+    private void sendProximityToJs(final boolean isNear) {
+        runOnUiThread(() -> {
+            if (myWebView != null) {
+                myWebView.evaluateJavascript("if (typeof window.onProximityChanged === 'function') { window.onProximityChanged(" + isNear + "); }", null);
+            }
+        });
+    }
+
+    private void registerProximityListener() {
+        if (sensorManager != null && proximitySensor != null) {
+            sensorManager.registerListener(proximitySensorListener, proximitySensor, SensorManager.SENSOR_DELAY_NORMAL);
+            Log.d(TAG, "Proximity listener registered");
         }
+    }
+
+    private void unregisterProximityListener() {
+        if (sensorManager != null) {
+            sensorManager.unregisterListener(proximitySensorListener);
+            Log.d(TAG, "Proximity listener unregistered");
+        }
+        if (proximityWakeLock != null && proximityWakeLock.isHeld()) {
+            try {
+                proximityWakeLock.release();
+            } catch (Exception e) {
+                Log.e(TAG, "Error releasing wake lock", e);
+            }
+        }
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        unregisterProximityListener();
     }
 
     // Javascript Interface class
@@ -132,6 +274,19 @@ public class MainActivity extends AppCompatActivity {
         public String getNativeFcmToken() {
             Log.d(TAG, "getNativeFcmToken interface called. Returning: " + nativeFcmToken);
             return nativeFcmToken;
+        }
+
+        @JavascriptInterface
+        public void setCallActive(final boolean active) {
+            runOnUiThread(() -> {
+                isCallActive = active;
+                Log.d(TAG, "setCallActive interface called: " + active);
+                if (active) {
+                    registerProximityListener();
+                } else {
+                    unregisterProximityListener();
+                }
+            });
         }
     }
 }

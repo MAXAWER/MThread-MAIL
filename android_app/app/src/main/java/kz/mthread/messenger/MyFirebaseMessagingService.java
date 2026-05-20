@@ -36,6 +36,8 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         // Extract message title and body
         String title = null;
         String body = null;
+        String chatId = null;
+        String isGroup = null;
 
         // Check if message contains a notification payload
         if (remoteMessage.getNotification() != null) {
@@ -52,16 +54,33 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             if (body == null && data.containsKey("body")) {
                 body = data.get("body");
             }
+            if (data.containsKey("chatId")) {
+                chatId = data.get("chatId");
+            }
+            if (data.containsKey("isGroup")) {
+                isGroup = data.get("isGroup");
+            }
         }
 
         if (title != null || body != null) {
-            sendNotification(title != null ? title : "MThread", body != null ? body : "");
+            sendNotification(
+                title != null ? title : "MThread", 
+                body != null ? body : "", 
+                chatId, 
+                isGroup
+            );
         }
     }
 
-    private void sendNotification(String title, String messageBody) {
+    private void sendNotification(String title, String messageBody, String chatId, String isGroup) {
         Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        if (chatId != null) {
+            intent.putExtra("chatId", chatId);
+        }
+        if (isGroup != null) {
+            intent.putExtra("isGroup", isGroup);
+        }
         
         // PendingIntent flags for modern Android compatibility (Android 12+ requires FLAG_IMMUTABLE/MUTABLE)
         int pendingIntentFlags = PendingIntent.FLAG_UPDATE_CURRENT;
@@ -75,7 +94,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         
         NotificationCompat.Builder notificationBuilder =
                 new NotificationCompat.Builder(this, CHANNEL_ID)
-                        .setSmallIcon(android.R.drawable.sym_def_app_icon) // Guarantees compile success
+                        .setSmallIcon(R.drawable.ic_launcher) // Use custom launcher icon
                         .setContentTitle(title)
                         .setContentText(messageBody)
                         .setAutoCancel(true)

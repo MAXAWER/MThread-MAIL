@@ -246,6 +246,15 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function setupAuthListener() {
         firebase.auth().onAuthStateChanged(async (user) => {
+            // Hide splash screen on the first auth check
+            const splash = document.getElementById('splash-screen');
+            if (splash) {
+                splash.classList.add('opacity-0');
+                setTimeout(() => {
+                    try { splash.remove(); } catch (e) {}
+                }, 300);
+            }
+
             if (user) {
                 currentUser = user;
                 authModal.classList.add('hidden');
@@ -256,6 +265,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 updateProfileUI();
                 loadChatList();
                 setupPushNotifications();
+                setupIncomingCallListener();
+
+                // Check if there is a pending chat from a notification
+                if (window.pendingNotificationChat) {
+                    const { chatId, isGroup } = window.pendingNotificationChat;
+                    window.pendingNotificationChat = null;
+                    window.openChatFromNotification(chatId, isGroup);
+                }
 
                 // Presence tracking
                 const presenceRef = db.collection('users').doc(user.uid);
@@ -274,6 +291,10 @@ document.addEventListener('DOMContentLoaded', () => {
             } else {
                 currentUser = null;
                 userProfileData = {};
+                if (callListenerUnsubscribe) {
+                    callListenerUnsubscribe();
+                    callListenerUnsubscribe = null;
+                }
 
                 // Immediately hide all modals (preventing higher z-index overlap like settings-modal z-300)
                 if (settingsModal) {
@@ -324,6 +345,71 @@ document.addEventListener('DOMContentLoaded', () => {
             } catch (err) {
                 console.error('Error saving native token via callback:', err);
             }
+        }
+    };
+
+    window.handleAndroidBackGesture = function() {
+        console.log('handleAndroidBackGesture called');
+        
+        // 1. Настройки группы
+        const groupSettingsModal = document.getElementById('group-settings-modal');
+        if (groupSettingsModal && !groupSettingsModal.classList.contains('hidden') && groupSettingsModal.style.display !== 'none') {
+            window.closeGroupSettings();
+            return true;
+        }
+        
+        // 2. Создание группы
+        const createGroupModal = document.getElementById('create-group-modal');
+        if (createGroupModal && !createGroupModal.classList.contains('hidden')) {
+            window.closeCreateGroupModal();
+            return true;
+        }
+        
+        // 3. Настройки профиля
+        const settingsModal = document.getElementById('settings-modal');
+        if (settingsModal && !settingsModal.classList.contains('hidden') && settingsModal.style.display !== 'none') {
+            window.closeSettings();
+            return true;
+        }
+        
+        // 4. Активный чат на мобильных устройствах
+        if (document.body.classList.contains('chat-active')) {
+            window.toggleMobileChat(false);
+            activeChatId = null;
+            return true;
+        }
+        
+        return false;
+    };
+
+    window.openChatFromNotification = async function(chatId, isGroupStr) {
+        const isGroup = isGroupStr === 'true' || isGroupStr === true;
+        console.log('openChatFromNotification called with:', chatId, isGroup);
+        if (!currentUser) {
+            window.pendingNotificationChat = { chatId, isGroup };
+            console.log('User not logged in yet. Saving pending notification chat.');
+            return;
+        }
+        try {
+            if (isGroup) {
+                const groupDoc = await db.collection('groups').doc(chatId).get();
+                if (groupDoc.exists) {
+                    const groupData = groupDoc.data();
+                    openChat(chatId, null, { username: groupData.name, isGroup: true });
+                }
+            } else {
+                const chatDoc = await db.collection('chats').doc(chatId).get();
+                if (chatDoc.exists) {
+                    const chatData = chatDoc.data();
+                    const targetUid = chatData.participants.find(uid => uid !== currentUser.uid);
+                    if (targetUid) {
+                        const targetData = chatData.participantsData[targetUid];
+                        openChat(chatId, targetUid, targetData);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('Error opening chat from notification:', err);
         }
     };
 
@@ -530,6 +616,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (groupInfoBtn) {
             if (isGroup) groupInfoBtn.classList.remove('hidden');
             else groupInfoBtn.classList.add('hidden');
+        }
+
+        const chatCallBtn = document.getElementById('chat-call-btn');
+        if (chatCallBtn) {
+            if (isGroup) chatCallBtn.classList.add('hidden');
+            else chatCallBtn.classList.remove('hidden');
         }
 
         const updateStatusUI = () => {
@@ -1875,10 +1967,379 @@ document.addEventListener('DOMContentLoaded', () => {
     });
 
 
-    window.toggleMobileChat = function(active) {
-        if (window.innerWidth <= 767) {
-            if (active) document.body.classList.add('chat-active');
-            else document.body.classList.remove('chat-active');
+    // ==========================================
+    // WebRTC Audio Calls Implementation
+    // ==========================================
+    let localStream = null;
+    let peerConnection = null;
+    let currentCallId = null;
+    let callListenerUnsubscribe = null;
+    let isCallMuted = false;
+    let activeCallUnsubscribe = null;
+    let activeCandidatesUnsubscribe = null;
+
+    const rtcConfig = {
+        iceServers: [
+            { urls: 'stun:stun.l.google.com:19302' },
+            { urls: 'stun:stun1.l.google.com:19302' },
+            { urls: 'stun:stun2.l.google.com:19302' }
+        ]
+    };
+
+    // Web Audio API Ringing Synthesizer
+    let ringInterval = null;
+    let audioCtx = null;
+
+    function startRinging(isIncoming) {
+        stopRinging();
+        if (!audioCtx) {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
+        
+        const playRingTone = () => {
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            try {
+                const osc1 = audioCtx.createOscillator();
+                const osc2 = audioCtx.createOscillator();
+                const gain = audioCtx.createGain();
+
+                if (isIncoming) {
+                    // Double ring tone: 400Hz and 450Hz mixed
+                    osc1.frequency.value = 400;
+                    osc2.frequency.value = 450;
+                    
+                    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime + 0.4);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
+                    
+                    gain.gain.setValueAtTime(0, audioCtx.currentTime + 0.7);
+                    gain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.8);
+                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime + 1.2);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.3);
+                } else {
+                    // Ringback tone (outgoing): 425Hz tone for 1 second, then 3 seconds quiet
+                    osc1.frequency.value = 425;
+                    osc2.frequency.value = 425;
+                    
+                    gain.gain.setValueAtTime(0, audioCtx.currentTime);
+                    gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.1);
+                    gain.gain.setValueAtTime(0.1, audioCtx.currentTime + 1.1);
+                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
+                }
+
+                osc1.connect(gain);
+                osc2.connect(gain);
+                gain.connect(audioCtx.destination);
+                
+                osc1.start();
+                osc2.start();
+                
+                setTimeout(() => {
+                    try { osc1.stop(); osc2.stop(); } catch(e) {}
+                }, 1500);
+            } catch (e) {
+                console.log("Synthesized ring tone failed:", e);
+            }
+        };
+
+        playRingTone();
+        ringInterval = setInterval(playRingTone, isIncoming ? 3000 : 4000);
+    }
+
+    function stopRinging() {
+        if (ringInterval) {
+            clearInterval(ringInterval);
+            ringInterval = null;
+        }
+    }
+
+    function setupIncomingCallListener() {
+        if (callListenerUnsubscribe) callListenerUnsubscribe();
+
+        callListenerUnsubscribe = db.collection('calls')
+            .where('receiverId', '==', currentUser.uid)
+            .where('status', '==', 'calling')
+            .onSnapshot(snapshot => {
+                snapshot.docChanges().forEach(change => {
+                    if (change.type === 'added') {
+                        const callData = change.doc.data();
+                        showIncomingCallUI(change.doc.id, callData);
+                    }
+                });
+            });
+    }
+
+    function showIncomingCallUI(callId, callData) {
+        if (currentCallId) return; // Already in a call or call screen active
+
+        currentCallId = callId;
+
+        document.getElementById('call-avatar').textContent = callData.callerName.charAt(0).toUpperCase();
+        document.getElementById('call-username').textContent = callData.callerName;
+        document.getElementById('call-status').textContent = 'Входящий вызов...';
+        
+        document.getElementById('btn-accept-call').classList.remove('hidden');
+        document.getElementById('call-overlay').classList.remove('hidden');
+        document.getElementById('call-overlay').classList.add('flex');
+
+        startRinging(true);
+
+        // Listen for call cancellation from the caller
+        activeCallUnsubscribe = db.collection('calls').doc(callId).onSnapshot(doc => {
+            const data = doc.data();
+            if (data && data.status === 'ended') {
+                cleanupCallUI();
+            }
+        });
+    }
+
+    async function startCall(receiverId, receiverName) {
+        if (currentCallId) return;
+
+        document.getElementById('call-avatar').textContent = receiverName.charAt(0).toUpperCase();
+        document.getElementById('call-username').textContent = receiverName;
+        document.getElementById('call-status').textContent = 'Исходящий вызов...';
+
+        document.getElementById('btn-accept-call').classList.add('hidden');
+        document.getElementById('call-overlay').classList.remove('hidden');
+        document.getElementById('call-overlay').classList.add('flex');
+
+        startRinging(false);
+
+        try {
+            // Request micro permission early
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            const localAudio = document.getElementById('local-audio');
+            if (localAudio) localAudio.srcObject = localStream;
+
+            // Notify native Android app (if bridge exists)
+            if (window.AndroidApp && typeof window.AndroidApp.setCallActive === 'function') {
+                window.AndroidApp.setCallActive(true);
+            }
+
+            const callDoc = db.collection('calls').doc();
+            currentCallId = callDoc.id;
+
+            await callDoc.set({
+                callerId: currentUser.uid,
+                callerName: currentUser.displayName || 'Пользователь',
+                receiverId: receiverId,
+                receiverName: receiverName,
+                status: 'calling',
+                createdAt: firebase.firestore.FieldValue.serverTimestamp()
+            });
+
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate && currentCallId) {
+                    db.collection('calls').doc(currentCallId).collection('callerCandidates').add(event.candidate.toJSON());
+                }
+            };
+
+            peerConnection.ontrack = event => {
+                const remoteAudio = document.getElementById('remote-audio');
+                if (remoteAudio) remoteAudio.srcObject = event.streams[0];
+            };
+
+            const offer = await peerConnection.createOffer();
+            await peerConnection.setLocalDescription(offer);
+
+            await callDoc.update({
+                offer: { type: offer.type, sdp: offer.sdp }
+            });
+
+            // Listen for answers and status changes
+            activeCallUnsubscribe = callDoc.onSnapshot(async doc => {
+                const data = doc.data();
+                if (data) {
+                    if (data.status === 'connected' && peerConnection.signalingState === 'have-local-offer' && data.answer) {
+                        document.getElementById('call-status').textContent = 'Разговор';
+                        stopRinging();
+                        await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
+                    } else if (data.status === 'ended') {
+                        cleanupCallUI();
+                    }
+                }
+            });
+
+            // Listen for candidates from receiver
+            activeCandidatesUnsubscribe = callDoc.collection('receiverCandidates').onSnapshot(snapshot => {
+                snapshot.docChanges().forEach(async change => {
+                    if (change.type === 'added' && peerConnection) {
+                        try {
+                            await peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                        } catch (e) {
+                            console.error("Error adding IceCandidate:", e);
+                        }
+                    }
+                });
+            });
+
+        } catch (error) {
+            console.error("Start call error:", error);
+            showSnackbar("Не удалось запустить звонок: " + error.message);
+            cleanupCallUI();
+        }
+    }
+
+    async function acceptCall() {
+        if (!currentCallId) return;
+
+        stopRinging();
+        document.getElementById('call-status').textContent = 'Подключение...';
+        document.getElementById('btn-accept-call').classList.add('hidden');
+
+        try {
+            localStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false });
+            const localAudio = document.getElementById('local-audio');
+            if (localAudio) localAudio.srcObject = localStream;
+
+            // Notify native Android app (if bridge exists)
+            if (window.AndroidApp && typeof window.AndroidApp.setCallActive === 'function') {
+                window.AndroidApp.setCallActive(true);
+            }
+
+            const callDocRef = db.collection('calls').doc(currentCallId);
+            const callDoc = await callDocRef.get();
+            const callData = callDoc.data();
+
+            if (!callData || callData.status !== 'calling') {
+                showSnackbar("Звонок уже завершен.");
+                cleanupCallUI();
+                return;
+            }
+
+            peerConnection = new RTCPeerConnection(rtcConfig);
+            localStream.getTracks().forEach(track => peerConnection.addTrack(track, localStream));
+
+            peerConnection.onicecandidate = event => {
+                if (event.candidate && currentCallId) {
+                    db.collection('calls').doc(currentCallId).collection('receiverCandidates').add(event.candidate.toJSON());
+                }
+            };
+
+            peerConnection.ontrack = event => {
+                const remoteAudio = document.getElementById('remote-audio');
+                if (remoteAudio) remoteAudio.srcObject = event.streams[0];
+            };
+
+            await peerConnection.setRemoteDescription(new RTCSessionDescription(callData.offer));
+            const answer = await peerConnection.createAnswer();
+            await peerConnection.setLocalDescription(answer);
+
+            await callDocRef.update({
+                answer: { type: answer.type, sdp: answer.sdp },
+                status: 'connected'
+            });
+
+            document.getElementById('call-status').textContent = 'Разговор';
+
+            // Listen for candidates from caller
+            activeCandidatesUnsubscribe = callDocRef.collection('callerCandidates').onSnapshot(snapshot => {
+                snapshot.docChanges().forEach(async change => {
+                    if (change.type === 'added' && peerConnection) {
+                        try {
+                            await peerConnection.addIceCandidate(new RTCIceCandidate(change.doc.data()));
+                        } catch (e) {
+                            console.error("Error adding IceCandidate:", e);
+                        }
+                    }
+                });
+            });
+
+        } catch (error) {
+            console.error("Accept call error:", error);
+            showSnackbar("Не удалось принять вызов: " + error.message);
+            hangupCall();
+        }
+    }
+
+    async function hangupCall() {
+        if (currentCallId) {
+            const callDocRef = db.collection('calls').doc(currentCallId);
+            try {
+                await callDocRef.update({ status: 'ended' });
+            } catch (e) {
+                console.error("Error ending call in Firestore:", e);
+            }
+        }
+        cleanupCallUI();
+    }
+
+    function cleanupCallUI() {
+        stopRinging();
+
+        if (activeCallUnsubscribe) {
+            activeCallUnsubscribe();
+            activeCallUnsubscribe = null;
+        }
+        if (activeCandidatesUnsubscribe) {
+            activeCandidatesUnsubscribe();
+            activeCandidatesUnsubscribe = null;
+        }
+
+        // Notify native Android app (if bridge exists)
+        if (window.AndroidApp && typeof window.AndroidApp.setCallActive === 'function') {
+            window.AndroidApp.setCallActive(false);
+        }
+
+        if (peerConnection) {
+            try { peerConnection.close(); } catch(e) {}
+            peerConnection = null;
+        }
+        if (localStream) {
+            localStream.getTracks().forEach(track => track.stop());
+            localStream = null;
+        }
+
+        const localAudio = document.getElementById('local-audio');
+        if (localAudio) localAudio.srcObject = null;
+        const remoteAudio = document.getElementById('remote-audio');
+        if (remoteAudio) remoteAudio.srcObject = null;
+
+        document.getElementById('call-overlay').classList.add('hidden');
+        document.getElementById('call-overlay').classList.remove('flex');
+        
+        currentCallId = null;
+        isCallMuted = false;
+        document.getElementById('mute-icon').textContent = 'mic';
+    }
+
+    function toggleMute() {
+        if (localStream) {
+            isCallMuted = !isCallMuted;
+            localStream.getAudioTracks().forEach(track => track.enabled = !isCallMuted);
+            document.getElementById('mute-icon').textContent = isCallMuted ? 'mic_off' : 'mic';
+        }
+    }
+
+    // Call Actions Click Bindings
+    document.getElementById('btn-mute-call').addEventListener('click', toggleMute);
+    document.getElementById('btn-accept-call').addEventListener('click', acceptCall);
+    document.getElementById('btn-hangup-call').addEventListener('click', hangupCall);
+
+    const chatCallBtn = document.getElementById('chat-call-btn');
+    if (chatCallBtn) {
+        chatCallBtn.addEventListener('click', () => {
+            if (activeChatUser) {
+                startCall(activeChatUser.uid, activeChatUser.username || 'Пользователь');
+            }
+        });
+    }
+
+    window.onProximityChanged = function(isNear) {
+        console.log("Proximity changed from native side:", isNear);
+        // Dim UI or handle mute/visual optimization if screen turns off
+    };
+
+
+    window.toggleMobileChat = function(active) {
+        if (active) document.body.classList.add('chat-active');
+        else document.body.classList.remove('chat-active');
     };
 });

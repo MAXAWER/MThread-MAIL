@@ -3,3 +3,10 @@ functions/node_modules/
 .firebase/
 firebase-debug.log
 .gemini/
+
+# Android build and IDE files
+android_app/.gradle/
+android_app/.idea/
+android_app/app/build/
+android_app/build/
+android_app/local.properties

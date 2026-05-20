@@ -232,3 +232,55 @@ exports.sendGroupPushNotification = functions.firestore
 
     return null;
   });
+
+exports.sendCallNotification = functions.firestore
+  .document("calls/{callId}")
+  .onCreate(async (snap, context) => {
+    const callData = snap.data();
+    const receiverId = callData.receiverId;
+    const callId = context.params.callId;
+
+    try {
+      const userDoc = await admin.firestore().collection("users").doc(receiverId).get();
+      if (!userDoc.exists) return null;
+
+      const userData = userDoc.data();
+      const fcmToken = userData.fcmToken;
+
+      if (!fcmToken) {
+        console.log("No FCM token found for user:", receiverId);
+        return null;
+      }
+
+      const messagePayload = {
+        token: fcmToken,
+        notification: {
+          title: "Входящий вызов",
+          body: `Вам звонит ${callData.callerName}`,
+        },
+        data: {
+          title: "Входящий вызов",
+          body: `Вам звонит ${callData.callerName}`,
+          chatId: callId,
+          type: "call",
+          click_action: 'https://maxawer1.web.app'
+        },
+        webpush: {
+          notification: {
+            icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d'
+          },
+          fcmOptions: {
+            link: 'https://maxawer1.web.app'
+          }
+        }
+      };
+
+      const response = await admin.messaging().send(messagePayload);
+      console.log("Successfully sent call notification via FCM v1:", response);
+    } catch (error) {
+      console.error("Error sending call notification:", error);
+    }
+
+    return null;
+  });
+
