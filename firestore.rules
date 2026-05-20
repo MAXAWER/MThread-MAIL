@@ -10,7 +10,7 @@ service cloud.firestore {
     // Function to check message schema
     function isValidMessage() {
       let data = request.resource.data;
-      return data.keys().hasOnly(['text', 'userId', 'userName', 'timestamp', 'imageUrl', 'read', 'edited'])
+      return data.keys().hasOnly(['text', 'userId', 'userName', 'timestamp', 'imageUrl', 'read', 'edited', 'attachments'])
           && data.text is string
           && data.text.size() <= 2000
           && data.userId == request.auth.uid;
