@@ -9,6 +9,8 @@ import android.webkit.JavascriptInterface;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
+import android.webkit.WebChromeClient;
+import android.webkit.PermissionRequest;
 import android.widget.Toast;
 import androidx.annotation.NonNull;
 import androidx.appcompat.app.AppCompatActivity;
@@ -80,6 +82,14 @@ public class MainActivity extends AppCompatActivity {
             }
         });
 
+        // Grant WebRTC microphone/camera permissions to the WebView
+        myWebView.setWebChromeClient(new WebChromeClient() {
+            @Override
+            public void onPermissionRequest(final PermissionRequest request) {
+                runOnUiThread(() -> request.grant(request.getResources()));
+            }
+        });
+
         // Inject JS Bridge Interface
         myWebView.addJavascriptInterface(new WebAppInterface(), "AndroidApp");
 
@@ -89,8 +99,8 @@ public class MainActivity extends AppCompatActivity {
         // Pre-fetch Firebase Cloud Messaging Token
         fetchFcmToken();
 
-        // Request Push Notification permission for Android 13+ (API 33+)
-        requestNotificationPermission();
+        // Request required runtime permissions (Microphone, Notifications)
+        requestAppPermissions();
 
         // Handle initial notification intent if app was closed
         handleNotificationIntent(getIntent());
@@ -208,14 +218,18 @@ public class MainActivity extends AppCompatActivity {
             });
     }
 
-    private void requestNotificationPermission() {
+    private void requestAppPermissions() {
+        java.util.ArrayList<String> list = new java.util.ArrayList<>();
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            list.add(Manifest.permission.RECORD_AUDIO);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) !=
-                    PackageManager.PERMISSION_GRANTED) {
-                ActivityCompat.requestPermissions(this,
-                        new String[]{Manifest.permission.POST_NOTIFICATIONS},
-                        PERMISSION_REQUEST_CODE);
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                list.add(Manifest.permission.POST_NOTIFICATIONS);
             }
+        }
+        if (!list.isEmpty()) {
+            ActivityCompat.requestPermissions(this, list.toArray(new String[0]), PERMISSION_REQUEST_CODE);
         }
     }
 
@@ -223,10 +237,14 @@ public class MainActivity extends AppCompatActivity {
     public void onRequestPermissionsResult(int requestCode, @NonNull String[] permissions, @NonNull int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
         if (requestCode == PERMISSION_REQUEST_CODE) {
-            if (grantResults.length > 0 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
-                Toast.makeText(this, "Разрешение на уведомления получено", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "Пожалуйста, включите уведомления в настройках системы", Toast.LENGTH_LONG).show();
+            boolean micGranted = false;
+            for (int i = 0; i < permissions.length; i++) {
+                if (permissions[i].equals(Manifest.permission.RECORD_AUDIO) && grantResults[i] == PackageManager.PERMISSION_GRANTED) {
+                    micGranted = true;
+                }
+            }
+            if (micGranted) {
+                Toast.makeText(this, "Доступ к микрофону разрешен", Toast.LENGTH_SHORT).show();
             }
         }
     }
