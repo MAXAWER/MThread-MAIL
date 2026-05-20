@@ -247,7 +247,26 @@ public class MainActivity extends AppCompatActivity {
     }
 
     private void handleNotificationIntent(android.content.Intent intent) {
-        if (intent != null && intent.hasExtra("chatId")) {
+        if (intent == null) return;
+        
+        // Handle incoming call accept action from notifications
+        if ("accept".equals(intent.getStringExtra("action"))) {
+            String callId = intent.getStringExtra("callId");
+            Log.d(TAG, "Notification call accept intent received. callId: " + callId);
+            if (callId != null && !callId.isEmpty()) {
+                runOnUiThread(() -> {
+                    if (myWebView != null) {
+                        myWebView.evaluateJavascript(
+                            "if (typeof acceptCallFromNotification === 'function') { acceptCallFromNotification('" + callId + "'); } else { window.pendingNotificationCall = '" + callId + "'; }",
+                            null
+                        );
+                    }
+                });
+            }
+        }
+
+        // Handle opening specific chats from notifications
+        if (intent.hasExtra("chatId")) {
             String chatId = intent.getStringExtra("chatId");
             String isGroup = intent.getStringExtra("isGroup");
             Log.d(TAG, "Notification Intent received. chatId: " + chatId + ", isGroup: " + isGroup);
@@ -421,12 +440,11 @@ public class MainActivity extends AppCompatActivity {
                     try {
                         AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
                         if (audioManager != null) {
-                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                            audioManager.setSpeakerphoneOn(false);
-                            Log.d(TAG, "Audio mode initialized to MODE_IN_COMMUNICATION and speakerphone off");
+                            audioManager.setMode(AudioManager.MODE_NORMAL);
+                            Log.d(TAG, "Audio mode initialized to MODE_NORMAL for call startup (ringing)");
                         }
                     } catch (Exception e) {
-                        Log.e(TAG, "Error initializing call audio mode", e);
+                        Log.e(TAG, "Error initializing call audio mode to normal", e);
                     }
                 } else {
                     unregisterProximityListener();
@@ -451,6 +469,28 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public void setCallConnected(final boolean connected) {
+            runOnUiThread(() -> {
+                Log.d(TAG, "setCallConnected interface called: " + connected);
+                try {
+                    AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                    if (audioManager != null) {
+                        if (connected) {
+                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                            audioManager.setSpeakerphoneOn(false);
+                            Log.d(TAG, "Audio mode transitioned to MODE_IN_COMMUNICATION");
+                        } else {
+                            audioManager.setMode(AudioManager.MODE_NORMAL);
+                            Log.d(TAG, "Audio mode transitioned to MODE_NORMAL");
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error transitioning audio mode on connection change", e);
+                }
+            });
+        }
+
+        @JavascriptInterface
         public void setSpeakerphoneOn(final boolean on) {
             runOnUiThread(() -> {
                 try {
@@ -463,6 +503,46 @@ public class MainActivity extends AppCompatActivity {
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error setting speakerphone", e);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public void saveAuthToken(final String token, final String uid) {
+            runOnUiThread(() -> {
+                android.content.SharedPreferences prefs = getSharedPreferences("MThreadPrefs", MODE_PRIVATE);
+                prefs.edit()
+                     .putString("authToken", token)
+                     .putString("authUid", uid)
+                     .apply();
+                Log.d(TAG, "saveAuthToken: Saved credentials to SharedPreferences");
+            });
+        }
+
+        @JavascriptInterface
+        public void downloadFile(final String url, final String filename) {
+            runOnUiThread(() -> {
+                try {
+                    android.app.DownloadManager.Request request = new android.app.DownloadManager.Request(Uri.parse(url));
+                    request.setDescription("Скачивание файла MThread...");
+                    request.setTitle(filename);
+                    request.setNotificationVisibility(android.app.DownloadManager.Request.VISIBILITY_VISIBLE_NOTIFY_COMPLETED);
+                    request.setDestinationInExternalPublicDir(android.os.Environment.DIRECTORY_DOWNLOADS, filename);
+
+                    android.app.DownloadManager dm = (android.app.DownloadManager) getSystemService(DOWNLOAD_SERVICE);
+                    if (dm != null) {
+                        dm.enqueue(request);
+                        Toast.makeText(MainActivity.this, "Скачивание файла началось", Toast.LENGTH_SHORT).show();
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error downloading file via JS bridge", e);
+                    try {
+                        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(url));
+                        startActivity(intent);
+                    } catch (Exception ex) {
+                        Log.e(TAG, "Error opening download URL in browser", ex);
+                        Toast.makeText(MainActivity.this, "Не удалось скачать файл", Toast.LENGTH_SHORT).show();
+                    }
                 }
             });
         }

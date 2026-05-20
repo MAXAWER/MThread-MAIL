@@ -28,6 +28,7 @@ async function checkRateLimit(uid, action, maxCalls = 10, windowSeconds = 60) {
         `Too many requests. Please wait ${windowSeconds} seconds before trying again.`
     );
 
+    let limitExceeded = false;
     await db.runTransaction(async (t) => {
         const doc = await t.get(ref);
 
@@ -53,9 +54,10 @@ async function checkRateLimit(uid, action, maxCalls = 10, windowSeconds = 60) {
             return;
         }
 
-        // Within the window — increment and check
+        // Within the window — check limit
         if (data.count >= maxCalls) {
-            throw LIMIT_EXCEEDED_ERROR;
+            limitExceeded = true;
+            return;
         }
 
         t.update(ref, {
@@ -63,6 +65,10 @@ async function checkRateLimit(uid, action, maxCalls = 10, windowSeconds = 60) {
             updatedAt: now,
         });
     });
+
+    if (limitExceeded) {
+        throw LIMIT_EXCEEDED_ERROR;
+    }
 }
 
 module.exports = { checkRateLimit };

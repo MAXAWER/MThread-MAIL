@@ -240,6 +240,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
         setupAuthListener();
+        setupIdTokenListener();
     } else {
         console.error("Firebase not initialized.");
     }
@@ -272,6 +273,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     const { chatId, isGroup } = window.pendingNotificationChat;
                     window.pendingNotificationChat = null;
                     window.openChatFromNotification(chatId, isGroup);
+                }
+
+                // Check if there is a pending call acceptance from a notification
+                if (window.pendingNotificationCall) {
+                    const callId = window.pendingNotificationCall;
+                    window.pendingNotificationCall = null;
+                    window.acceptCallFromNotification(callId);
                 }
 
                 // Presence tracking
@@ -332,6 +340,26 @@ document.addEventListener('DOMContentLoaded', () => {
                 chatListContainer.innerHTML = '';
                 messagesContainer.innerHTML = '';
                 activeChatId = null;
+            }
+        });
+    }
+
+    function setupIdTokenListener() {
+        firebase.auth().onIdTokenChanged(async (user) => {
+            if (user) {
+                if (window.AndroidApp && typeof window.AndroidApp.saveAuthToken === 'function') {
+                    try {
+                        const token = await user.getIdToken();
+                        window.AndroidApp.saveAuthToken(token, user.uid);
+                        console.log('ID Token saved/updated in Android App');
+                    } catch (err) {
+                        console.error("Failed to get ID token:", err);
+                    }
+                }
+            } else {
+                if (window.AndroidApp && typeof window.AndroidApp.saveAuthToken === 'function') {
+                    window.AndroidApp.saveAuthToken('', '');
+                }
             }
         });
     }
@@ -410,6 +438,19 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         } catch (err) {
             console.error('Error opening chat from notification:', err);
+        }
+    };
+
+    window.acceptCallFromNotification = function(callId) {
+        console.log("acceptCallFromNotification called for callId:", callId);
+        if (!currentUser) {
+            window.pendingNotificationCall = callId;
+            return;
+        }
+        if (currentCallId === callId) {
+            acceptCall();
+        } else {
+            window.autoAcceptCallId = callId;
         }
     };
 
@@ -799,7 +840,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h4 class="text-sm font-semibold text-white truncate">${escapeHtml(targetData.username || '...')}</h4>
                                 <span class="text-[10px] text-on-surface-variant/60">${time}</span>
                             </div>
-                            <p class="text-xs text-on-surface-variant/60 truncate">${chat.lastMessageSender === currentUser.uid ? '<span class="text-on-surface-variant font-bold">Вы:</span> ' : ''}${escapeHtml(chat.lastMessage || 'Начать диалог')}</p>
+                            <p class="text-xs text-on-surface-variant/60 truncate">${chat.lastMessageSender === currentUser.uid ? '<span class="text-on-surface-variant font-bold">Вы:</span> ' : ''}${chat.lastMessage !== undefined && chat.lastMessage !== null && chat.lastMessage !== "" ? escapeHtml(chat.lastMessage) : (chat.lastMessage === "" ? "" : "Начать диалог")}</p>
                         </div>
                     `;
 
@@ -844,7 +885,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let contextTargetId = null;
     let contextTargetText = null;
 
-    function showContextMenu(x, y, msgId, currentText, isMe) {
+    function showContextMenu(rect, msgId, currentText, isMe) {
         contextTargetId = msgId;
         contextTargetText = currentText;
         
@@ -861,16 +902,20 @@ document.addEventListener('DOMContentLoaded', () => {
         contextMenu.classList.remove('hidden');
         contextMenu.classList.add('flex');
         
-        // Ensure menu doesn't go off screen
-        let left = x;
-        let top = y;
+        // Position relative to bubble
+        let left = isMe ? (rect.right - 180) : rect.left;
+        let top = rect.bottom + 8; // 8px spacing below bubble
+        
+        // Boundaries checks
+        if (left < 10) left = 10;
+        if (left + 180 > window.innerWidth) left = window.innerWidth - 190;
+        if (top + 100 > window.innerHeight) {
+            top = rect.top - 100; // Show above bubble if no space below
+        }
+        if (top < 10) top = 10;
         
         contextMenu.style.left = `${left}px`;
         contextMenu.style.top = `${top}px`;
-        
-        const rect = contextMenu.getBoundingClientRect();
-        if (rect.right > window.innerWidth) contextMenu.style.left = `${window.innerWidth - rect.width - 10}px`;
-        if (rect.bottom > window.innerHeight) contextMenu.style.top = `${window.innerHeight - rect.height - 10}px`;
     }
 
     document.addEventListener('click', (e) => {
@@ -1021,10 +1066,12 @@ document.addEventListener('DOMContentLoaded', () => {
             bubble.appendChild(img);
         }
 
-        const textP = document.createElement('p');
-        textP.className = 'msg-text text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap';
-        textP.textContent = msg.text;
-        bubble.appendChild(textP);
+        if (msg.text && msg.text.trim() !== '') {
+            const textP = document.createElement('p');
+            textP.className = 'msg-text text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap';
+            textP.textContent = msg.text;
+            bubble.appendChild(textP);
+        }
 
         if (msg.edited) {
             const editedSpan = document.createElement('span');
@@ -1053,14 +1100,33 @@ document.addEventListener('DOMContentLoaded', () => {
 
         msgDiv.appendChild(metaDiv);
 
-        bubble.addEventListener('contextmenu', (e) => {
-            e.preventDefault();
-            showContextMenu(e.clientX, e.clientY, docId, msg.text, isMe);
-        });
-        bubble.addEventListener('click', (e) => {
-            e.stopPropagation();
-            showContextMenu(e.clientX, e.clientY, docId, msg.text, isMe);
-        });
+        if (isMe) {
+            let hasMoved = false;
+            bubble.addEventListener('touchstart', () => {
+                hasMoved = false;
+            }, { passive: true });
+            bubble.addEventListener('touchmove', () => {
+                hasMoved = true;
+            }, { passive: true });
+            bubble.addEventListener('touchend', (e) => {
+                if (!hasMoved) {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    showContextMenu(bubble.getBoundingClientRect(), docId, msg.text, isMe);
+                }
+            });
+
+            bubble.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showContextMenu(bubble.getBoundingClientRect(), docId, msg.text, isMe);
+            });
+
+            bubble.addEventListener('contextmenu', (e) => {
+                e.preventDefault();
+                e.stopPropagation();
+                showContextMenu(bubble.getBoundingClientRect(), docId, msg.text, isMe);
+            });
+        }
 
         messagesContainer.appendChild(msgDiv);
     };
@@ -1171,14 +1237,24 @@ document.addEventListener('DOMContentLoaded', () => {
     const lightboxImg = document.getElementById('lightbox-image');
     const lightboxDownloadBtn = document.getElementById('lightbox-download-btn');
     const closeLightboxBtn = document.getElementById('close-lightbox-btn');
+    let currentLightboxUrl = '';
 
     function openLightbox(url) {
         if (!lightboxModal || !lightboxImg || !lightboxDownloadBtn) return;
+        currentLightboxUrl = url;
         lightboxImg.src = url;
-        lightboxDownloadBtn.href = url;
-        lightboxDownloadBtn.setAttribute('download', 'image_' + Date.now() + '.jpg');
         lightboxModal.classList.remove('hidden');
         lightboxModal.classList.add('flex');
+    }
+
+    if (lightboxDownloadBtn) {
+        lightboxDownloadBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            if (currentLightboxUrl) {
+                const filename = 'image_' + Date.now() + '.jpg';
+                triggerDownload(currentLightboxUrl, filename);
+            }
+        });
     }
 
     if (closeLightboxBtn) {
@@ -1186,6 +1262,7 @@ document.addEventListener('DOMContentLoaded', () => {
             lightboxModal.classList.add('hidden');
             lightboxModal.classList.remove('flex');
             lightboxImg.src = '';
+            currentLightboxUrl = '';
         });
     }
 
@@ -1195,17 +1272,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 lightboxModal.classList.add('hidden');
                 lightboxModal.classList.remove('flex');
                 lightboxImg.src = '';
+                currentLightboxUrl = '';
             }
         });
     }
 
-    function triggerDownload(url, filename) {
+    async function triggerDownload(url, filename) {
         if (window.AndroidApp) {
-            window.location.href = url;
-        } else {
+            if (typeof window.AndroidApp.downloadFile === 'function') {
+                window.AndroidApp.downloadFile(url, filename);
+            } else {
+                window.location.href = url;
+            }
+            return;
+        }
+        
+        try {
+            // Fetch the file as a blob to force download
+            const response = await fetch(url);
+            const blob = await response.blob();
+            const blobUrl = URL.createObjectURL(blob);
+            
+            const a = document.createElement('a');
+            a.href = blobUrl;
+            a.download = filename || 'download';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            
+            // Clean up the object URL
+            setTimeout(() => URL.revokeObjectURL(blobUrl), 100);
+        } catch (e) {
+            console.error("Blob download failed, falling back to open in tab:", e);
+            // Fallback to opening in a new tab if fetch fails (e.g. CORS issues)
             const a = document.createElement('a');
             a.href = url;
-            a.download = filename || 'download';
             a.target = '_blank';
             document.body.appendChild(a);
             a.click();
@@ -1243,16 +1344,29 @@ document.addEventListener('DOMContentLoaded', () => {
             const collectionName = isGroup ? 'groups' : 'chats';
             const timestamp = firebase.firestore.FieldValue.serverTimestamp();
             
+            // Capture original values for rollback on error
+            const originalText = text;
+            const originalPendingAttachments = [...pendingAttachments];
+            
+            // Optimistically clear the input field and previews immediately
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+            pendingAttachments = [];
+            renderAttachmentPreviews();
+            
             let uploadedAttachments = [];
-            if (pendingAttachments.length > 0) {
+            if (originalPendingAttachments.length > 0) {
                 showSnackbar('Отправка файлов...');
                 const sendBtn = document.getElementById('send-btn');
                 if (sendBtn) sendBtn.disabled = true;
                 
                 try {
-                    for (const att of pendingAttachments) {
+                    for (const att of originalPendingAttachments) {
+                        const metadata = {
+                            contentDisposition: `attachment; filename="${att.file.name}"`
+                        };
                         const storageRef = storage.ref(`chat_files/${activeChatId}/${Date.now()}_${att.file.name}`);
-                        const snapshot = await storageRef.put(att.file);
+                        const snapshot = await storageRef.put(att.file, metadata);
                         const url = await snapshot.ref.getDownloadURL();
                         uploadedAttachments.push({
                             url: url,
@@ -1262,6 +1376,10 @@ document.addEventListener('DOMContentLoaded', () => {
                     }
                 } catch (err) {
                     showSnackbar('Ошибка загрузки файлов: ' + err.message);
+                    // Rollback on error
+                    messageInput.value = originalText;
+                    pendingAttachments = originalPendingAttachments;
+                    renderAttachmentPreviews();
                     if (sendBtn) sendBtn.disabled = false;
                     return;
                 }
@@ -1269,45 +1387,41 @@ document.addEventListener('DOMContentLoaded', () => {
                 if (sendBtn) sendBtn.disabled = false;
             }
 
-            let finalMsgText = text;
-            if (!finalMsgText && uploadedAttachments.length > 0) {
-                if (uploadedAttachments.length === 1) {
-                    finalMsgText = uploadedAttachments[0].type === 'image' ? '📷 Фотография' : `📁 Файл: ${uploadedAttachments[0].name}`;
-                } else {
-                    finalMsgText = `📁 ${uploadedAttachments.length} вложений`;
-                }
-            }
-
             const messageData = {
-                text: finalMsgText,
                 userId: currentUser.uid,
                 userName: currentUser.displayName,
                 timestamp: timestamp
             };
+            if (originalText) {
+                messageData.text = originalText;
+            }
 
             if (uploadedAttachments.length > 0) {
                 messageData.attachments = uploadedAttachments;
             }
 
+            // Set lastMessage to literally "" if the text is empty, as requested by the user:
+            // "чтобы ничего не писалось если пользователь ничего не написал"
+            let lastMessageDisplay = originalText || "";
+
             try {
                 await db.collection(collectionName).doc(activeChatId).collection('messages').add(messageData);
 
                 await db.collection(collectionName).doc(activeChatId).set({
-                    lastMessage: finalMsgText,
+                    lastMessage: lastMessageDisplay,
                     lastMessageSender: currentUser.uid,
                     lastUpdated: timestamp
                 }, { merge: true });
 
-                pendingAttachments.forEach(att => {
+                originalPendingAttachments.forEach(att => {
                     if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
                 });
-                pendingAttachments = [];
-                renderAttachmentPreviews();
-
-                messageInput.value = '';
-                messageInput.style.height = 'auto';
             } catch (err) {
                 showSnackbar('Ошибка отправки: ' + err.message);
+                // Rollback on error
+                messageInput.value = originalText;
+                pendingAttachments = originalPendingAttachments;
+                renderAttachmentPreviews();
             }
         }
     });
@@ -1354,7 +1468,7 @@ document.addEventListener('DOMContentLoaded', () => {
     window.openCreateGroupModal = () => {
         createGroupModal.classList.remove('hidden');
         createGroupModal.classList.add('flex');
-        selectedGroupMembers = [currentUser.uid]; // Self is always in
+        selectedGroupMembers = [{ uid: currentUser.uid, username: currentUser.displayName || currentUser.email || 'Я' }]; // Self is always in
         renderSelectedGroupMembers();
     };
 
@@ -1368,17 +1482,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function renderSelectedGroupMembers() {
         groupMembersList.innerHTML = '';
-        selectedGroupMembers.forEach(uid => {
-            if (uid === currentUser.uid) return;
+        selectedGroupMembers.forEach(member => {
+            if (member.uid === currentUser.uid) return;
             const span = document.createElement('span');
             span.className = 'bg-primary-container text-on-primary-container text-xs px-2 py-1 rounded-full flex items-center gap-1';
-            span.innerHTML = `Пользователь <button onclick="removeGroupMember('${uid}')"><span class="material-symbols-outlined text-[12px]">close</span></button>`;
+            span.innerHTML = `${escapeHtml(member.username)} <button onclick="removeGroupMember('${member.uid}')"><span class="material-symbols-outlined text-[12px]">close</span></button>`;
             groupMembersList.appendChild(span);
         });
     }
 
     window.removeGroupMember = (uid) => {
-        selectedGroupMembers = selectedGroupMembers.filter(id => id !== uid);
+        selectedGroupMembers = selectedGroupMembers.filter(m => m.uid !== uid);
         renderSelectedGroupMembers();
     };
 
@@ -1399,14 +1513,15 @@ document.addEventListener('DOMContentLoaded', () => {
             snapshot.forEach(doc => {
                 const username = doc.id;
                 const uid = doc.data().uid;
-                if (uid === currentUser.uid || selectedGroupMembers.includes(uid)) return;
+                const isAlreadyAdded = selectedGroupMembers.some(m => m.uid === uid);
+                if (uid === currentUser.uid || isAlreadyAdded) return;
                 
                 found = true;
                 const div = document.createElement('div');
                 div.className = 'p-3 hover:bg-white/5 cursor-pointer text-sm text-white border-b border-white/5';
                 div.textContent = username;
                 div.onclick = () => {
-                    selectedGroupMembers.push(uid);
+                    selectedGroupMembers.push({ uid: uid, username: username });
                     renderSelectedGroupMembers();
                     groupMemberSearch.value = '';
                     groupMemberResults.classList.add('hidden');
@@ -1434,8 +1549,9 @@ document.addEventListener('DOMContentLoaded', () => {
         createGroupBtn.textContent = 'Создание...';
         
         try {
+            const uids = selectedGroupMembers.map(m => m.uid);
             const createGroupFn = firebase.functions().httpsCallable('createGroup');
-            await createGroupFn({ name: name, participants: selectedGroupMembers });
+            await createGroupFn({ name: name, participants: uids });
             
             showSnackbar('Группа создана');
             closeCreateGroupModal();
@@ -1483,7 +1599,7 @@ document.addEventListener('DOMContentLoaded', () => {
                                 <h4 class="text-sm font-semibold text-white truncate">${escapeHtml(group.name)}</h4>
                                 <span class="text-[10px] text-on-surface-variant/60">${time}</span>
                             </div>
-                            <p class="text-xs text-on-surface-variant/60 truncate">${escapeHtml(group.lastMessage || 'Нет сообщений')}</p>
+                            <p class="text-xs text-on-surface-variant/60 truncate">${group.lastMessage !== undefined && group.lastMessage !== null && group.lastMessage !== "" ? escapeHtml(group.lastMessage) : (group.lastMessage === "" ? "" : "Нет сообщений")}</p>
                         </div>
                     `;
 
@@ -2146,6 +2262,9 @@ document.addEventListener('DOMContentLoaded', () => {
     let localStream = null;
     let peerConnection = null;
     let currentCallId = null;
+    let currentCallData = null;
+    let callStartTime = null;
+    let ringingAudio = null;
     let callListenerUnsubscribe = null;
     let isCallMuted = false;
     let isSpeakerOn = false;
@@ -2160,73 +2279,87 @@ document.addEventListener('DOMContentLoaded', () => {
         ]
     };
 
-    // Web Audio API Ringing Synthesizer
-    let ringInterval = null;
-    let audioCtx = null;
+    // Helper to programmatically build a playable WAV Blob of a tone
+    function createToneWavBlob(frequency, duration, activeRatio, isMelodic = false) {
+        const sampleRate = 8000;
+        const numSamples = sampleRate * duration;
+        const buffer = new ArrayBuffer(44 + numSamples * 2);
+        const view = new DataView(buffer);
 
-    function startRinging(isIncoming) {
-        stopRinging();
-        if (!audioCtx) {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-        }
-        
-        const playRingTone = () => {
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-            try {
-                const osc1 = audioCtx.createOscillator();
-                const osc2 = audioCtx.createOscillator();
-                const gain = audioCtx.createGain();
-
-                if (isIncoming) {
-                    // Double ring tone: 400Hz and 450Hz mixed
-                    osc1.frequency.value = 400;
-                    osc2.frequency.value = 450;
-                    
-                    gain.gain.setValueAtTime(0, audioCtx.currentTime);
-                    gain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.1);
-                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime + 0.4);
-                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.5);
-                    
-                    gain.gain.setValueAtTime(0, audioCtx.currentTime + 0.7);
-                    gain.gain.linearRampToValueAtTime(0.15, audioCtx.currentTime + 0.8);
-                    gain.gain.setValueAtTime(0.15, audioCtx.currentTime + 1.2);
-                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.3);
-                } else {
-                    // Ringback tone (outgoing): 425Hz tone for 1 second, then 3 seconds quiet
-                    osc1.frequency.value = 425;
-                    osc2.frequency.value = 425;
-                    
-                    gain.gain.setValueAtTime(0, audioCtx.currentTime);
-                    gain.gain.linearRampToValueAtTime(0.1, audioCtx.currentTime + 0.1);
-                    gain.gain.setValueAtTime(0.1, audioCtx.currentTime + 1.1);
-                    gain.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 1.2);
-                }
-
-                osc1.connect(gain);
-                osc2.connect(gain);
-                gain.connect(audioCtx.destination);
-                
-                osc1.start();
-                osc2.start();
-                
-                setTimeout(() => {
-                    try { osc1.stop(); osc2.stop(); } catch(e) {}
-                }, 1500);
-            } catch (e) {
-                console.log("Synthesized ring tone failed:", e);
+        const writeString = (view, offset, string) => {
+            for (let i = 0; i < string.length; i++) {
+                view.setUint8(offset + i, string.charCodeAt(i));
             }
         };
 
-        playRingTone();
-        ringInterval = setInterval(playRingTone, isIncoming ? 3000 : 4000);
+        writeString(view, 0, 'RIFF');
+        view.setUint32(4, 36 + numSamples * 2, true);
+        writeString(view, 8, 'WAVE');
+        writeString(view, 12, 'fmt ');
+        view.setUint32(16, 16, true);
+        view.setUint16(20, 1, true);
+        view.setUint16(22, 1, true);
+        view.setUint32(24, sampleRate, true);
+        view.setUint32(28, sampleRate * 2, true);
+        view.setUint16(32, 2, true);
+        view.setUint16(34, 16, true);
+        writeString(view, 36, 'data');
+        view.setUint32(40, numSamples * 2, true);
+
+        const activeSamples = numSamples * activeRatio;
+        for (let i = 0; i < numSamples; i++) {
+            let sample = 0;
+            if (i < activeSamples) {
+                const t = i / sampleRate;
+                if (isMelodic) {
+                    // Beautiful futuristic ascending melody chime
+                    let freq = 523.25;
+                    if (t > 0.45) freq = 1046.50;
+                    else if (t > 0.3) freq = 783.99;
+                    else if (t > 0.15) freq = 659.25;
+                    const envelope = Math.max(0, 1 - (t / (activeSamples / sampleRate)));
+                    sample = Math.sin(2 * Math.PI * freq * t) * envelope * 0.4 * 32767;
+                } else {
+                    // Outgoing sonar ping (frequency sweeps down from 880 to 220 Hz)
+                    const durationSeconds = activeSamples / sampleRate;
+                    const freq = 880 - (660 * (t / durationSeconds));
+                    const envelope = Math.exp(-3 * t);
+                    sample = Math.sin(2 * Math.PI * freq * t) * envelope * 0.5 * 32767;
+                }
+            }
+            view.setInt16(44 + i * 2, sample, true);
+        }
+
+        return new Blob([buffer], { type: 'audio/wav' });
+    }
+
+    function startRinging(isIncoming) {
+        stopRinging();
+        try {
+            const frequency = isIncoming ? 600 : 425;
+            const duration = isIncoming ? 3.0 : 4.0;
+            const activeRatio = isIncoming ? 0.33 : 0.3; // 1s tone/2s silence, or 1.2s tone/2.8s silence
+            
+            const blob = createToneWavBlob(frequency, duration, activeRatio, isIncoming);
+            const url = URL.createObjectURL(blob);
+            
+            ringingAudio = new Audio(url);
+            ringingAudio.loop = true;
+            ringingAudio.play().catch(e => {
+                console.warn("Failed to play ringing audio:", e);
+            });
+        } catch (e) {
+            console.error("Error starting ringing audio:", e);
+        }
     }
 
     function stopRinging() {
-        if (ringInterval) {
-            clearInterval(ringInterval);
-            ringInterval = null;
+        if (ringingAudio) {
+            try {
+                ringingAudio.pause();
+                ringingAudio.src = "";
+            } catch (e) {}
+            ringingAudio = null;
         }
     }
 
@@ -2247,9 +2380,17 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function showIncomingCallUI(callId, callData) {
+        if (window.autoAcceptCallId === callId) {
+            window.autoAcceptCallId = null;
+            acceptCall();
+            return;
+        }
+
         if (currentCallId) return; // Already in a call or call screen active
 
         currentCallId = callId;
+        currentCallData = callData;
+        callStartTime = null;
 
         document.getElementById('call-avatar').textContent = callData.callerName.charAt(0).toUpperCase();
         document.getElementById('call-username').textContent = callData.callerName;
@@ -2261,11 +2402,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
         startRinging(true);
 
-        // Listen for call cancellation from the caller
+        // Listen for call state updates (answered elsewhere, cancelled, rejected)
         activeCallUnsubscribe = db.collection('calls').doc(callId).onSnapshot(doc => {
             const data = doc.data();
-            if (data && data.status === 'ended') {
-                cleanupCallUI();
+            if (data) {
+                currentCallData = data;
+                if (data.status === 'ended' || data.status === 'rejected' || (data.status === 'connected' && !peerConnection)) {
+                    cleanupCallUI();
+                }
             }
         });
     }
@@ -2296,6 +2440,14 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const callDoc = db.collection('calls').doc();
             currentCallId = callDoc.id;
+            currentCallData = {
+                callerId: currentUser.uid,
+                callerName: currentUser.displayName || 'Пользователь',
+                receiverId: receiverId,
+                receiverName: receiverName,
+                status: 'calling'
+            };
+            callStartTime = null;
 
             await callDoc.set({
                 callerId: currentUser.uid,
@@ -2318,7 +2470,14 @@ document.addEventListener('DOMContentLoaded', () => {
             peerConnection.ontrack = event => {
                 const remoteAudio = document.getElementById('remote-audio');
                 if (remoteAudio) {
-                    remoteAudio.srcObject = event.streams[0];
+                    if (event.streams && event.streams[0]) {
+                        remoteAudio.srcObject = event.streams[0];
+                    } else {
+                        if (!remoteAudio.srcObject) {
+                            remoteAudio.srcObject = new MediaStream();
+                        }
+                        remoteAudio.srcObject.addTrack(event.track);
+                    }
                     remoteAudio.play().catch(err => console.error("Error playing remote audio:", err));
                 }
             };
@@ -2334,9 +2493,11 @@ document.addEventListener('DOMContentLoaded', () => {
             activeCallUnsubscribe = callDoc.onSnapshot(async doc => {
                 const data = doc.data();
                 if (data) {
+                    currentCallData = data;
                     if (data.status === 'connected' && peerConnection.signalingState === 'have-local-offer' && data.answer) {
                         document.getElementById('call-status').textContent = 'Разговор';
                         stopRinging();
+                        callStartTime = Date.now();
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
                         
                         isSpeakerOn = false;
@@ -2344,7 +2505,12 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
                             window.AndroidApp.setSpeakerphoneOn(false);
                         }
+                        if (window.AndroidApp && typeof window.AndroidApp.setCallConnected === 'function') {
+                            window.AndroidApp.setCallConnected(true);
+                        }
                     } else if (data.status === 'ended') {
+                        cleanupCallUI();
+                    } else if (data.status === 'rejected') {
                         cleanupCallUI();
                     }
                 }
@@ -2369,7 +2535,6 @@ document.addEventListener('DOMContentLoaded', () => {
             cleanupCallUI();
         }
     }
-
     async function acceptCall() {
         if (!currentCallId) return;
 
@@ -2409,7 +2574,14 @@ document.addEventListener('DOMContentLoaded', () => {
             peerConnection.ontrack = event => {
                 const remoteAudio = document.getElementById('remote-audio');
                 if (remoteAudio) {
-                    remoteAudio.srcObject = event.streams[0];
+                    if (event.streams && event.streams[0]) {
+                        remoteAudio.srcObject = event.streams[0];
+                    } else {
+                        if (!remoteAudio.srcObject) {
+                            remoteAudio.srcObject = new MediaStream();
+                        }
+                        remoteAudio.srcObject.addTrack(event.track);
+                    }
                     remoteAudio.play().catch(err => console.error("Error playing remote audio:", err));
                 }
             };
@@ -2420,8 +2592,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             await callDocRef.update({
                 answer: { type: answer.type, sdp: answer.sdp },
-                status: 'connected'
+                status: 'connected',
+                connectedAt: firebase.firestore.FieldValue.serverTimestamp()
             });
+            callStartTime = Date.now();
 
             document.getElementById('call-status').textContent = 'Разговор';
 
@@ -2429,6 +2603,9 @@ document.addEventListener('DOMContentLoaded', () => {
             updateSpeakerUI();
             if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
                 window.AndroidApp.setSpeakerphoneOn(false);
+            }
+            if (window.AndroidApp && typeof window.AndroidApp.setCallConnected === 'function') {
+                window.AndroidApp.setCallConnected(true);
             }
 
             // Listen for candidates from caller
@@ -2455,7 +2632,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (currentCallId) {
             const callDocRef = db.collection('calls').doc(currentCallId);
             try {
-                await callDocRef.update({ status: 'ended' });
+                // If we are the receiver and the call is still 'calling', update status to 'rejected'
+                if (currentCallData && currentUser && currentUser.uid === currentCallData.receiverId && currentCallData.status === 'calling') {
+                    await callDocRef.update({ 
+                        status: 'rejected',
+                        endedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                } else {
+                    await callDocRef.update({ 
+                        status: 'ended',
+                        endedAt: firebase.firestore.FieldValue.serverTimestamp()
+                    });
+                }
             } catch (e) {
                 console.error("Error ending call in Firestore:", e);
             }
@@ -2498,6 +2686,8 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('call-overlay').classList.remove('flex');
         
         currentCallId = null;
+        currentCallData = null;
+        callStartTime = null;
         isCallMuted = false;
         document.getElementById('mute-icon').textContent = 'mic';
         
@@ -2507,6 +2697,8 @@ document.addEventListener('DOMContentLoaded', () => {
             window.AndroidApp.setSpeakerphoneOn(false);
         }
     }
+
+
 
     function toggleMute() {
         if (localStream) {

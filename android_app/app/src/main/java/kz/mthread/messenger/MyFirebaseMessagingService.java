@@ -5,6 +5,7 @@ import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.content.Context;
 import android.content.Intent;
+import android.media.AudioAttributes;
 import android.media.RingtoneManager;
 import android.net.Uri;
 import android.os.Build;
@@ -20,12 +21,12 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
 
     private static final String TAG = "MThreadFCMService";
     private static final String CHANNEL_ID = "mthread_notifications";
+    private static final String CALL_CHANNEL_ID = "mthread_calls";
 
     @Override
     public void onNewToken(@NonNull String token) {
         super.onNewToken(token);
         Log.d(TAG, "Refreshed token: " + token);
-        // Token will be sent to the server dynamically from MainActivity upon launch or refresh
     }
 
     @Override
@@ -33,27 +34,27 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(remoteMessage);
         Log.d(TAG, "From: " + remoteMessage.getFrom());
 
-        // Skip system notification if the app is in the foreground
-        if (MainActivity.isAppInForeground) {
-            Log.d(TAG, "App is in foreground. Skipping system notification.");
+        Map<String, String> data = remoteMessage.getData();
+        String type = data != null && data.containsKey("type") ? data.get("type") : null;
+
+        // Skip system notification if the app is in the foreground (except for calls)
+        if (MainActivity.isAppInForeground && !"call".equals(type)) {
+            Log.d(TAG, "App is in foreground and not a call. Skipping system notification.");
             return;
         }
 
-        // Extract message title and body
+        // Extract message parameters
         String title = null;
         String body = null;
         String chatId = null;
         String isGroup = null;
 
-        // Check if message contains a notification payload
         if (remoteMessage.getNotification() != null) {
             title = remoteMessage.getNotification().getTitle();
             body = remoteMessage.getNotification().getBody();
         }
 
-        // Check if message contains a data payload (allows advanced payload customization)
-        Map<String, String> data = remoteMessage.getData();
-        if (data.size() > 0) {
+        if (data != null && data.size() > 0) {
             if (title == null && data.containsKey("title")) {
                 title = data.get("title");
             }
@@ -68,7 +69,22 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             }
         }
 
-        if (title != null || body != null) {
+        if ("call".equals(type)) {
+            sendCallNotification(
+                title != null ? title : "Входящий вызов", 
+                body != null ? body : "Вам звонят", 
+                chatId
+            );
+        } else if ("call_cancelled".equals(type)) {
+            Log.d(TAG, "Call cancelled/ended/connected. Dismissing notification for: " + chatId);
+            if (chatId != null && !chatId.isEmpty()) {
+                int notificationId = chatId.hashCode();
+                NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (notificationManager != null) {
+                    notificationManager.cancel(notificationId);
+                }
+            }
+        } else if (title != null || body != null) {
             sendNotification(
                 title != null ? title : "MThread", 
                 body != null ? body : "", 
@@ -88,7 +104,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
             intent.putExtra("isGroup", isGroup);
         }
         
-        // PendingIntent flags for modern Android compatibility (Android 12+ requires FLAG_IMMUTABLE/MUTABLE)
         int pendingIntentFlags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             pendingIntentFlags |= PendingIntent.FLAG_IMMUTABLE;
@@ -100,7 +115,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         
         NotificationCompat.Builder notificationBuilder =
                 new NotificationCompat.Builder(this, CHANNEL_ID)
-                        .setSmallIcon(R.drawable.ic_launcher) // Use custom launcher icon
+                        .setSmallIcon(R.drawable.ic_launcher)
                         .setContentTitle(title)
                         .setContentText(messageBody)
                         .setAutoCancel(true)
@@ -113,7 +128,6 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                 (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
 
         if (notificationManager != null) {
-            // Since Android Oreo (8.0+), a notification channel is required for high priority notifications
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 NotificationChannel channel = new NotificationChannel(
                         CHANNEL_ID,
@@ -126,8 +140,83 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                 notificationManager.createNotificationChannel(channel);
             }
 
-            // Using system timestamp as ID to prevent notification overriding
             int notificationId = (int) System.currentTimeMillis();
+            notificationManager.notify(notificationId, notificationBuilder.build());
+        }
+    }
+
+    private void sendCallNotification(String title, String messageBody, String callId) {
+        if (callId == null || callId.isEmpty()) return;
+
+        // Intent for clicking the notification itself (will also act as Accept)
+        Intent clickIntent = new Intent(this, MainActivity.class);
+        clickIntent.putExtra("callId", callId);
+        clickIntent.putExtra("action", "accept");
+        clickIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        
+        int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
+        }
+        PendingIntent clickPendingIntent = PendingIntent.getActivity(this, (int) System.currentTimeMillis(), clickIntent, pendingFlags);
+
+        // Intent for the Accept button
+        Intent acceptIntent = new Intent(this, MainActivity.class);
+        acceptIntent.putExtra("callId", callId);
+        acceptIntent.putExtra("action", "accept");
+        acceptIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent acceptPendingIntent = PendingIntent.getActivity(this, (int) System.currentTimeMillis() + 1, acceptIntent, pendingFlags);
+
+        // Intent for the Decline button (targets BroadcastReceiver)
+        Intent declineIntent = new Intent(this, CallActionReceiver.class);
+        declineIntent.putExtra("callId", callId);
+        declineIntent.putExtra("action", "decline");
+        
+        int declineFlags = PendingIntent.FLAG_UPDATE_CURRENT;
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            declineFlags |= PendingIntent.FLAG_MUTABLE;
+        }
+        PendingIntent declinePendingIntent = PendingIntent.getBroadcast(this, (int) System.currentTimeMillis() + 2, declineIntent, declineFlags);
+
+        Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+
+        NotificationCompat.Builder notificationBuilder =
+                new NotificationCompat.Builder(this, CALL_CHANNEL_ID)
+                        .setSmallIcon(R.drawable.ic_launcher)
+                        .setContentTitle(title)
+                        .setContentText(messageBody)
+                        .setPriority(NotificationCompat.PRIORITY_HIGH)
+                        .setCategory(NotificationCompat.CATEGORY_CALL)
+                        .setOngoing(true)
+                        .setAutoCancel(true)
+                        .setSound(ringtoneUri)
+                        .setContentIntent(clickPendingIntent)
+                        .setFullScreenIntent(clickPendingIntent, true) // Show as overlay banner
+                        .addAction(android.R.drawable.ic_menu_call, "Принять", acceptPendingIntent)
+                        .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Отклонить", declinePendingIntent);
+
+        NotificationManager notificationManager =
+                (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+
+        if (notificationManager != null) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                NotificationChannel channel = new NotificationChannel(
+                        CALL_CHANNEL_ID,
+                        "Звонки MThread",
+                        NotificationManager.IMPORTANCE_HIGH
+                );
+                channel.setDescription("Канал для входящих звонков MThread");
+                AudioAttributes audioAttributes = new AudioAttributes.Builder()
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .build();
+                channel.setSound(ringtoneUri, audioAttributes);
+                channel.enableLights(true);
+                channel.enableVibration(true);
+                notificationManager.createNotificationChannel(channel);
+            }
+
+            int notificationId = callId.hashCode();
             notificationManager.notify(notificationId, notificationBuilder.build());
         }
     }

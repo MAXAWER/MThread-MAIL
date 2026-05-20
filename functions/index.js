@@ -284,3 +284,99 @@ exports.sendCallNotification = functions.firestore
     return null;
   });
 
+exports.onCallUpdate = functions.firestore
+  .document("calls/{callId}")
+  .onUpdate(async (change, context) => {
+    const beforeData = change.before.data();
+    const afterData = change.after.data();
+    const callId = context.params.callId;
+
+    if (beforeData.status !== afterData.status && 
+        (afterData.status === 'connected' || afterData.status === 'ended' || afterData.status === 'rejected')) {
+      try {
+        const participants = [afterData.callerId, afterData.receiverId];
+        
+        // 1. Send call state sync notifications
+        const sendPromises = participants.map(async (userId) => {
+          if (!userId) return;
+          const userDoc = await admin.firestore().collection("users").doc(userId).get();
+          if (!userDoc.exists) return;
+          
+          const userData = userDoc.data();
+          const fcmToken = userData.fcmToken;
+          if (!fcmToken) return;
+
+          const messagePayload = {
+            token: fcmToken,
+            data: {
+              type: "call_cancelled",
+              chatId: callId,
+              status: afterData.status
+            }
+          };
+
+          try {
+            await admin.messaging().send(messagePayload);
+            console.log(`Successfully sent call state sync to user ${userId} for call ${callId}`);
+          } catch (err) {
+            console.error(`Error sending call state sync to user ${userId}:`, err);
+          }
+        });
+
+        await Promise.all(sendPromises);
+
+        // 2. Log call to chat history if call has ended or was rejected
+        if (afterData.status === 'ended' || afterData.status === 'rejected') {
+          const callerId = afterData.callerId;
+          const receiverId = afterData.receiverId;
+          if (callerId && receiverId) {
+            const chatId = [callerId, receiverId].sort().join('_');
+            
+            let callLogText = '';
+            if (afterData.connectedAt) {
+              const connectedTime = afterData.connectedAt.toDate ? afterData.connectedAt.toDate().getTime() : afterData.connectedAt;
+              const endedTime = (afterData.endedAt && afterData.endedAt.toDate) ? afterData.endedAt.toDate().getTime() : Date.now();
+              const durationSec = Math.floor((endedTime - connectedTime) / 1000);
+              
+              const mins = Math.floor(durationSec / 60);
+              const secs = durationSec % 60;
+              const durationText = mins > 0 ? `${mins} мин ${secs} сек` : `${secs} сек`;
+              callLogText = `📞 Звонок завершен. Продолжительность: ${durationText}`;
+            } else {
+              if (afterData.status === 'rejected') {
+                callLogText = `📞 Отклоненный вызов`;
+              } else {
+                callLogText = `📞 Пропущенный вызов`;
+              }
+            }
+
+            const messageData = {
+              text: callLogText,
+              userId: callerId, // Show as if sent by the caller (left/right styling fits normal message orientation)
+              userName: afterData.callerName || 'Пользователь',
+              timestamp: admin.firestore.FieldValue.serverTimestamp()
+            };
+
+            const db = admin.firestore();
+            const messageDocRef = db.collection('chats').doc(chatId).collection('messages').doc(callId);
+            
+            // Check if already written to prevent overwriting with slightly different server timestamp
+            const msgSnap = await messageDocRef.get();
+            if (!msgSnap.exists) {
+              await messageDocRef.set(messageData);
+              await db.collection('chats').doc(chatId).set({
+                lastMessage: callLogText,
+                lastMessageSender: callerId,
+                lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+              }, { merge: true });
+              console.log(`Successfully logged call ${callId} to chat history.`);
+            }
+          }
+        }
+      } catch (error) {
+        console.error("Error in onCallUpdate cloud function:", error);
+      }
+    }
+    return null;
+  });
+

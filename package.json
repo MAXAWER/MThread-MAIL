@@ -1,7 +1,7 @@
 {
   "name": "mthread.kz",
-  "version": "1.1.0",
-  "description": "MThread Messenger - Premium P2P voice call & text messaging client with multi-attachment support",
+  "version": "1.1.1",
+  "description": "MThread Messenger - Premium real-time voice call & messaging client",
   "main": "app.js",
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1"
