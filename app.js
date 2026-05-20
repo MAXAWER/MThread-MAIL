@@ -1041,17 +1041,27 @@ document.addEventListener('DOMContentLoaded', () => {
                     const fileDiv = document.createElement('div');
                     fileDiv.className = 'flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 mb-2 hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer';
                     fileDiv.innerHTML = `
-                        <span class="material-symbols-outlined text-[24px] text-primary-container">description</span>
+                        <span class="material-symbols-outlined text-[24px] text-primary-container shrink-0">description</span>
                         <div class="flex-1 min-w-0">
                             <p class="text-sm font-semibold text-white truncate">${escapeHtml(att.name)}</p>
-                            <p class="text-[10px] text-on-surface-variant/60">Нажмите для скачивания</p>
+                            <p class="text-[10px] text-on-surface-variant/60">Открыть для просмотра</p>
                         </div>
-                        <span class="material-symbols-outlined text-[20px] text-on-surface-variant">download</span>
+                        <button class="download-btn flex items-center justify-center p-2 rounded-xl hover:bg-white/10 active:scale-95 transition-all text-on-surface-variant shrink-0 z-10" title="Скачать файл">
+                            <span class="material-symbols-outlined text-[20px]">download</span>
+                        </button>
                     `;
                     fileDiv.addEventListener('click', (ev) => {
                         ev.stopPropagation();
-                        triggerDownload(att.url, att.name);
+                        window.open(att.url, '_blank');
                     });
+                    
+                    const downloadBtn = fileDiv.querySelector('.download-btn');
+                    if (downloadBtn) {
+                        downloadBtn.addEventListener('click', (ev) => {
+                            ev.stopPropagation();
+                            triggerDownload(att.url, att.name);
+                        });
+                    }
                     bubble.appendChild(fileDiv);
                 }
             });
@@ -1100,7 +1110,8 @@ document.addEventListener('DOMContentLoaded', () => {
 
         msgDiv.appendChild(metaDiv);
 
-        if (isMe) {
+        const isSystem = msg.isSystem === true || msg.userId === 'system' || (msg.text && msg.text.startsWith('📞'));
+        if (isMe && !isSystem) {
             let hasMoved = false;
             bubble.addEventListener('touchstart', () => {
                 hasMoved = false;
@@ -1390,11 +1401,9 @@ document.addEventListener('DOMContentLoaded', () => {
             const messageData = {
                 userId: currentUser.uid,
                 userName: currentUser.displayName,
-                timestamp: timestamp
+                timestamp: timestamp,
+                text: originalText || ""
             };
-            if (originalText) {
-                messageData.text = originalText;
-            }
 
             if (uploadedAttachments.length > 0) {
                 messageData.attachments = uploadedAttachments;

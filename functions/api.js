@@ -13,37 +13,45 @@ function requireAuth(context) {
 }
 
 exports.createGroup = functions.https.onCall(async (data, context) => {
-    requireAuth(context);
-    await checkRateLimit(context.auth.uid, 'createGroup', 5, 60); // Max 5 groups per minute
-    
-    const { name, participants } = data;
-    if (!name || typeof name !== 'string' || name.trim().length === 0) {
-        throw new functions.https.HttpsError("invalid-argument", "Group name is required.");
+    try {
+        requireAuth(context);
+        await checkRateLimit(context.auth.uid, 'createGroup', 5, 60); // Max 5 groups per minute
+        
+        const { name, participants } = data;
+        if (!name || typeof name !== 'string' || name.trim().length === 0) {
+            throw new functions.https.HttpsError("invalid-argument", "Group name is required.");
+        }
+        if (!Array.isArray(participants)) {
+            throw new functions.https.HttpsError("invalid-argument", "Participants must be an array.");
+        }
+
+        const uid = context.auth.uid;
+        const finalParticipants = [...new Set([uid, ...participants])];
+
+        if (finalParticipants.length > 50) {
+            throw new functions.https.HttpsError("invalid-argument", "Too many participants.");
+        }
+
+        const groupData = {
+            name: name.trim(),
+            participants: finalParticipants,
+            createdBy: uid,
+            createdAt: admin.firestore.FieldValue.serverTimestamp(),
+            lastMessage: '',
+            lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
+            isGroup: true
+        };
+
+        const docRef = await admin.firestore().collection("groups").add(groupData);
+        
+        return { groupId: docRef.id };
+    } catch (err) {
+        console.error("Error in createGroup Callable function:", err);
+        if (err instanceof functions.https.HttpsError) {
+            throw err;
+        }
+        throw new functions.https.HttpsError("internal", err.message || "Internal error occurred");
     }
-    if (!Array.isArray(participants)) {
-        throw new functions.https.HttpsError("invalid-argument", "Participants must be an array.");
-    }
-
-    const uid = context.auth.uid;
-    const finalParticipants = [...new Set([uid, ...participants])];
-
-    if (finalParticipants.length > 50) {
-        throw new functions.https.HttpsError("invalid-argument", "Too many participants.");
-    }
-
-    const groupData = {
-        name: name.trim(),
-        participants: finalParticipants,
-        createdBy: uid,
-        createdAt: admin.firestore.FieldValue.serverTimestamp(),
-        lastMessage: '',
-        lastUpdated: admin.firestore.FieldValue.serverTimestamp(),
-        isGroup: true
-    };
-
-    const docRef = await admin.firestore().collection("groups").add(groupData);
-    
-    return { groupId: docRef.id };
 });
 
 exports.updateGroupMetadata = functions.https.onCall(async (data, context) => {

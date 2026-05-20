@@ -354,7 +354,8 @@ exports.onCallUpdate = functions.firestore
               text: callLogText,
               userId: callerId, // Show as if sent by the caller (left/right styling fits normal message orientation)
               userName: afterData.callerName || 'Пользователь',
-              timestamp: admin.firestore.FieldValue.serverTimestamp()
+              timestamp: admin.firestore.FieldValue.serverTimestamp(),
+              isSystem: true
             };
 
             const db = admin.firestore();
