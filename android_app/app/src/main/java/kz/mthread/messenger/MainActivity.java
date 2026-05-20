@@ -37,6 +37,7 @@ import android.webkit.URLUtil;
 public class MainActivity extends AppCompatActivity {
 
     private static final String TAG = "MThreadMainActivity";
+    public static boolean isAppInForeground = false;
     private WebView myWebView;
     private static final int PERMISSION_REQUEST_CODE = 112;
     private String nativeFcmToken = "";
@@ -374,8 +375,21 @@ public class MainActivity extends AppCompatActivity {
     }
 
     @Override
+    protected void onStart() {
+        super.onStart();
+        isAppInForeground = true;
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        isAppInForeground = false;
+    }
+
+    @Override
     protected void onDestroy() {
         super.onDestroy();
+        isAppInForeground = false;
         unregisterProximityListener();
     }
 
@@ -392,10 +406,35 @@ public class MainActivity extends AppCompatActivity {
             runOnUiThread(() -> {
                 isCallActive = active;
                 Log.d(TAG, "setCallActive interface called: " + active);
+                Intent serviceIntent = new Intent(MainActivity.this, CallForegroundService.class);
                 if (active) {
                     registerProximityListener();
+                    try {
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                            startForegroundService(serviceIntent);
+                        } else {
+                            startService(serviceIntent);
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error starting foreground service", e);
+                    }
+                    try {
+                        AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                        if (audioManager != null) {
+                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                            audioManager.setSpeakerphoneOn(false);
+                            Log.d(TAG, "Audio mode initialized to MODE_IN_COMMUNICATION and speakerphone off");
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error initializing call audio mode", e);
+                    }
                 } else {
                     unregisterProximityListener();
+                    try {
+                        stopService(serviceIntent);
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error stopping foreground service", e);
+                    }
                     // Hard reset audio routing when call is terminated
                     try {
                         AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
@@ -417,14 +456,10 @@ public class MainActivity extends AppCompatActivity {
                 try {
                     AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
                     if (audioManager != null) {
-                        if (on) {
-                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
-                            audioManager.setSpeakerphoneOn(true);
-                        } else {
-                            audioManager.setSpeakerphoneOn(false);
-                            audioManager.setMode(AudioManager.MODE_NORMAL);
-                        }
-                        Log.d(TAG, "Speakerphone set to: " + on);
+                        // Ensure we remain in MODE_IN_COMMUNICATION during VoIP calls!
+                        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                        audioManager.setSpeakerphoneOn(on);
+                        Log.d(TAG, "Speakerphone set to: " + on + ", Mode: MODE_IN_COMMUNICATION");
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error setting speakerphone", e);

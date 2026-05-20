@@ -33,6 +33,12 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         super.onMessageReceived(remoteMessage);
         Log.d(TAG, "From: " + remoteMessage.getFrom());
 
+        // Skip system notification if the app is in the foreground
+        if (MainActivity.isAppInForeground) {
+            Log.d(TAG, "App is in foreground. Skipping system notification.");
+            return;
+        }
+
         // Extract message title and body
         String title = null;
         String body = null;

@@ -981,11 +981,43 @@ document.addEventListener('DOMContentLoaded', () => {
             bubble.appendChild(senderSpan);
         }
 
-        if (msg.imageUrl) {
+        if (msg.attachments && Array.isArray(msg.attachments)) {
+            msg.attachments.forEach(att => {
+                if (att.type === 'image') {
+                    const img = document.createElement('img');
+                    img.src = att.url;
+                    img.className = 'msg-image w-full max-w-sm rounded-xl mb-2 object-cover cursor-pointer hover:brightness-90 transition-all';
+                    img.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        openLightbox(att.url);
+                    });
+                    bubble.appendChild(img);
+                } else {
+                    const fileDiv = document.createElement('div');
+                    fileDiv.className = 'flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 mb-2 hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer';
+                    fileDiv.innerHTML = `
+                        <span class="material-symbols-outlined text-[24px] text-primary-container">description</span>
+                        <div class="flex-1 min-w-0">
+                            <p class="text-sm font-semibold text-white truncate">${escapeHtml(att.name)}</p>
+                            <p class="text-[10px] text-on-surface-variant/60">Нажмите для скачивания</p>
+                        </div>
+                        <span class="material-symbols-outlined text-[20px] text-on-surface-variant">download</span>
+                    `;
+                    fileDiv.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        triggerDownload(att.url, att.name);
+                    });
+                    bubble.appendChild(fileDiv);
+                }
+            });
+        } else if (msg.imageUrl) {
             const img = document.createElement('img');
             img.src = msg.imageUrl;
             img.className = 'msg-image w-full max-w-sm rounded-xl mb-2 object-cover cursor-pointer hover:brightness-90 transition-all';
-            img.addEventListener('click', () => window.open(img.src, '_blank'));
+            img.addEventListener('click', (ev) => {
+                ev.stopPropagation();
+                openLightbox(msg.imageUrl);
+            });
             bubble.appendChild(img);
         }
 
@@ -1026,9 +1058,8 @@ document.addEventListener('DOMContentLoaded', () => {
             showContextMenu(e.clientX, e.clientY, docId, msg.text, isMe);
         });
         bubble.addEventListener('click', (e) => {
-            if (window.innerWidth <= 767) {
-                showContextMenu(e.clientX, e.clientY, docId, msg.text, isMe);
-            }
+            e.stopPropagation();
+            showContextMenu(e.clientX, e.clientY, docId, msg.text, isMe);
         });
 
         messagesContainer.appendChild(msgDiv);
@@ -1049,46 +1080,137 @@ document.addEventListener('DOMContentLoaded', () => {
         }, 1500);
     });
 
+    let pendingAttachments = [];
+    const attachmentPreviewContainer = document.getElementById('attachment-preview-container');
+
+    function renderAttachmentPreviews() {
+        if (!attachmentPreviewContainer) return;
+        attachmentPreviewContainer.innerHTML = '';
+        
+        if (pendingAttachments.length === 0) {
+            attachmentPreviewContainer.classList.add('hidden');
+            attachmentPreviewContainer.classList.remove('flex');
+            return;
+        }
+
+        attachmentPreviewContainer.classList.remove('hidden');
+        attachmentPreviewContainer.classList.add('flex');
+
+        pendingAttachments.forEach((att) => {
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'relative flex items-center bg-white/10 border border-white/10 rounded-2xl p-2 pr-8 max-w-[200px] shrink-0 gap-2 animate-msg';
+
+            if (att.type === 'image') {
+                const img = document.createElement('img');
+                img.src = att.previewUrl;
+                img.className = 'w-10 h-10 object-cover rounded-lg border border-white/5';
+                itemDiv.appendChild(img);
+            } else {
+                const icon = document.createElement('span');
+                icon.className = 'material-symbols-outlined text-[24px] text-primary-container';
+                icon.textContent = 'description';
+                itemDiv.appendChild(icon);
+            }
+
+            const nameDiv = document.createElement('div');
+            nameDiv.className = 'flex-1 min-w-0';
+            const nameP = document.createElement('p');
+            nameP.className = 'text-xs text-white font-semibold truncate';
+            nameP.textContent = att.file.name;
+            
+            const sizeP = document.createElement('p');
+            sizeP.className = 'text-[9px] text-on-surface-variant/60';
+            const sizeInKb = (att.file.size / 1024).toFixed(1);
+            sizeP.textContent = `${sizeInKb} KB`;
+
+            nameDiv.appendChild(nameP);
+            nameDiv.appendChild(sizeP);
+            itemDiv.appendChild(nameDiv);
+
+            const removeBtn = document.createElement('button');
+            removeBtn.type = 'button';
+            removeBtn.className = 'absolute top-1 right-1 w-5 h-5 flex items-center justify-center bg-black/60 hover:bg-black/90 text-white rounded-full transition-all duration-150';
+            removeBtn.innerHTML = '<span class="material-symbols-outlined text-[12px] font-bold">close</span>';
+            removeBtn.addEventListener('click', () => {
+                pendingAttachments = pendingAttachments.filter(x => x.id !== att.id);
+                if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+                renderAttachmentPreviews();
+            });
+            itemDiv.appendChild(removeBtn);
+
+            attachmentPreviewContainer.appendChild(itemDiv);
+        });
+    }
+
     const chatImageInput = document.getElementById('chat-image-input');
     if (chatImageInput) {
-        chatImageInput.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file || !currentUser || !activeChatId) return;
-            
-            showSnackbar('Отправка изображения...');
-            
-            const isGroup = activeChatUser && activeChatUser.isGroup;
-            const collectionName = isGroup ? 'groups' : 'chats';
-            
-            const storageRef = storage.ref(`chat_images/${activeChatId}/${Date.now()}_${file.name}`);
-            try {
-                const snapshot = await storageRef.put(file);
-                const url = await snapshot.ref.getDownloadURL();
+        chatImageInput.addEventListener('change', (e) => {
+            const files = e.target.files;
+            if (!files || files.length === 0) return;
+
+            for (let i = 0; i < files.length; i++) {
+                const file = files[i];
+                const type = file.type.startsWith('image/') ? 'image' : 'file';
+                const previewUrl = type === 'image' ? URL.createObjectURL(file) : null;
                 
-                const timestamp = firebase.firestore.FieldValue.serverTimestamp();
-                db.collection(collectionName).doc(activeChatId).collection('messages').add({
-                    text: '📷 Изображение',
-                    imageUrl: url,
-                    userId: currentUser.uid,
-                    userName: currentUser.displayName,
-                    timestamp: timestamp
+                pendingAttachments.push({
+                    id: Math.random().toString(36).substr(2, 9),
+                    file: file,
+                    type: type,
+                    previewUrl: previewUrl
                 });
-                
-                db.collection(collectionName).doc(activeChatId).set({
-                    lastMessage: '📷 Изображение',
-                    lastMessageSender: currentUser.uid,
-                    lastUpdated: timestamp
-                }, { merge: true });
-                
-                chatImageInput.value = '';
-            } catch (err) {
-                if (err.message.includes('not been set up') || err.message.includes('unauthorized')) {
-                    showSnackbar('Включите Storage в Firebase Console!');
-                } else {
-                    showSnackbar('Ошибка отправки: ' + err.message);
-                }
+            }
+
+            renderAttachmentPreviews();
+            chatImageInput.value = '';
+        });
+    }
+
+    // Lightbox modal functionality
+    const lightboxModal = document.getElementById('image-lightbox-modal');
+    const lightboxImg = document.getElementById('lightbox-image');
+    const lightboxDownloadBtn = document.getElementById('lightbox-download-btn');
+    const closeLightboxBtn = document.getElementById('close-lightbox-btn');
+
+    function openLightbox(url) {
+        if (!lightboxModal || !lightboxImg || !lightboxDownloadBtn) return;
+        lightboxImg.src = url;
+        lightboxDownloadBtn.href = url;
+        lightboxDownloadBtn.setAttribute('download', 'image_' + Date.now() + '.jpg');
+        lightboxModal.classList.remove('hidden');
+        lightboxModal.classList.add('flex');
+    }
+
+    if (closeLightboxBtn) {
+        closeLightboxBtn.addEventListener('click', () => {
+            lightboxModal.classList.add('hidden');
+            lightboxModal.classList.remove('flex');
+            lightboxImg.src = '';
+        });
+    }
+
+    if (lightboxModal) {
+        lightboxModal.addEventListener('click', (e) => {
+            if (e.target === lightboxModal) {
+                lightboxModal.classList.add('hidden');
+                lightboxModal.classList.remove('flex');
+                lightboxImg.src = '';
             }
         });
+    }
+
+    function triggerDownload(url, filename) {
+        if (window.AndroidApp) {
+            window.location.href = url;
+        } else {
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = filename || 'download';
+            a.target = '_blank';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        }
     }
 
     // Send Message on Enter
@@ -1109,33 +1231,84 @@ document.addEventListener('DOMContentLoaded', () => {
         e.preventDefault();
         const text = messageInput.value.trim();
         
-        // Keep keyboard open on mobile
         setTimeout(() => messageInput.focus(), 10);
 
-        if (text && db && currentUser && activeChatId) {
+        if (!activeChatId) {
+            showSnackbar('Выберите чат для отправки сообщения');
+            return;
+        }
+
+        if ((text || pendingAttachments.length > 0) && db && currentUser) {
             const isGroup = activeChatUser && activeChatUser.isGroup;
             const collectionName = isGroup ? 'groups' : 'chats';
             const timestamp = firebase.firestore.FieldValue.serverTimestamp();
             
-            // Add message
-            db.collection(collectionName).doc(activeChatId).collection('messages').add({
-                text: text,
+            let uploadedAttachments = [];
+            if (pendingAttachments.length > 0) {
+                showSnackbar('Отправка файлов...');
+                const sendBtn = document.getElementById('send-btn');
+                if (sendBtn) sendBtn.disabled = true;
+                
+                try {
+                    for (const att of pendingAttachments) {
+                        const storageRef = storage.ref(`chat_files/${activeChatId}/${Date.now()}_${att.file.name}`);
+                        const snapshot = await storageRef.put(att.file);
+                        const url = await snapshot.ref.getDownloadURL();
+                        uploadedAttachments.push({
+                            url: url,
+                            type: att.type,
+                            name: att.file.name
+                        });
+                    }
+                } catch (err) {
+                    showSnackbar('Ошибка загрузки файлов: ' + err.message);
+                    if (sendBtn) sendBtn.disabled = false;
+                    return;
+                }
+                
+                if (sendBtn) sendBtn.disabled = false;
+            }
+
+            let finalMsgText = text;
+            if (!finalMsgText && uploadedAttachments.length > 0) {
+                if (uploadedAttachments.length === 1) {
+                    finalMsgText = uploadedAttachments[0].type === 'image' ? '📷 Фотография' : `📁 Файл: ${uploadedAttachments[0].name}`;
+                } else {
+                    finalMsgText = `📁 ${uploadedAttachments.length} вложений`;
+                }
+            }
+
+            const messageData = {
+                text: finalMsgText,
                 userId: currentUser.uid,
                 userName: currentUser.displayName,
                 timestamp: timestamp
-            });
+            };
 
-            // Update chat meta
-            db.collection(collectionName).doc(activeChatId).set({
-                lastMessage: text,
-                lastMessageSender: currentUser.uid,
-                lastUpdated: timestamp
-            }, { merge: true });
+            if (uploadedAttachments.length > 0) {
+                messageData.attachments = uploadedAttachments;
+            }
 
-            messageInput.value = '';
-            messageInput.style.height = 'auto';
-        } else if (!activeChatId) {
-            showSnackbar('Выберите чат для отправки сообщения');
+            try {
+                await db.collection(collectionName).doc(activeChatId).collection('messages').add(messageData);
+
+                await db.collection(collectionName).doc(activeChatId).set({
+                    lastMessage: finalMsgText,
+                    lastMessageSender: currentUser.uid,
+                    lastUpdated: timestamp
+                }, { merge: true });
+
+                pendingAttachments.forEach(att => {
+                    if (att.previewUrl) URL.revokeObjectURL(att.previewUrl);
+                });
+                pendingAttachments = [];
+                renderAttachmentPreviews();
+
+                messageInput.value = '';
+                messageInput.style.height = 'auto';
+            } catch (err) {
+                showSnackbar('Ошибка отправки: ' + err.message);
+            }
         }
     });
 
@@ -1975,7 +2148,7 @@ document.addEventListener('DOMContentLoaded', () => {
     let currentCallId = null;
     let callListenerUnsubscribe = null;
     let isCallMuted = false;
-    let isSpeakerOn = true;
+    let isSpeakerOn = false;
     let activeCallUnsubscribe = null;
     let activeCandidatesUnsubscribe = null;
 
@@ -2166,10 +2339,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         stopRinging();
                         await peerConnection.setRemoteDescription(new RTCSessionDescription(data.answer));
                         
-                        isSpeakerOn = true;
+                        isSpeakerOn = false;
                         updateSpeakerUI();
                         if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
-                            window.AndroidApp.setSpeakerphoneOn(true);
+                            window.AndroidApp.setSpeakerphoneOn(false);
                         }
                     } else if (data.status === 'ended') {
                         cleanupCallUI();
@@ -2252,10 +2425,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
             document.getElementById('call-status').textContent = 'Разговор';
 
-            isSpeakerOn = true;
+            isSpeakerOn = false;
             updateSpeakerUI();
             if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
-                window.AndroidApp.setSpeakerphoneOn(true);
+                window.AndroidApp.setSpeakerphoneOn(false);
             }
 
             // Listen for candidates from caller
@@ -2328,7 +2501,7 @@ document.addEventListener('DOMContentLoaded', () => {
         isCallMuted = false;
         document.getElementById('mute-icon').textContent = 'mic';
         
-        isSpeakerOn = true;
+        isSpeakerOn = false;
         updateSpeakerUI();
         if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
             window.AndroidApp.setSpeakerphoneOn(false);
@@ -2387,10 +2560,14 @@ document.addEventListener('DOMContentLoaded', () => {
     window.onProximityChanged = function(isNear) {
         console.log("Proximity changed from native side:", isNear);
         if (peerConnection) {
-            isSpeakerOn = !isNear;
-            updateSpeakerUI();
-            if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
-                window.AndroidApp.setSpeakerphoneOn(isSpeakerOn);
+            if (isNear) {
+                if (isSpeakerOn) {
+                    isSpeakerOn = false;
+                    updateSpeakerUI();
+                    if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
+                        window.AndroidApp.setSpeakerphoneOn(false);
+                    }
+                }
             }
         }
     };
