@@ -31,6 +31,10 @@ public class CallActionReceiver extends BroadcastReceiver {
         if ("decline".equals(action)) {
             // Decline call in the background via Firestore REST API with client's saved token
             declineCallInBackground(context, callId);
+
+            // Stop ringtone service
+            Intent stopRingtone = new Intent(context, RingtoneService.class);
+            context.stopService(stopRingtone);
         }
     }
 

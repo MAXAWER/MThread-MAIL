@@ -254,19 +254,21 @@ exports.sendCallNotification = functions.firestore
 
       const messagePayload = {
         token: fcmToken,
-        notification: {
-          title: "Входящий вызов",
-          body: `Вам звонит ${callData.callerName}`,
-        },
         data: {
           title: "Входящий вызов",
           body: `Вам звонит ${callData.callerName}`,
           chatId: callId,
+          callerName: callData.callerName || 'Пользователь',
           type: "call",
           click_action: 'https://maxawer1.web.app'
         },
+        android: {
+          priority: "high"
+        },
         webpush: {
           notification: {
+            title: "Входящий вызов",
+            body: `Вам звонит ${callData.callerName}`,
             icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d'
           },
           fcmOptions: {

@@ -528,10 +528,23 @@ document.addEventListener('DOMContentLoaded', () => {
             messaging.onMessage((payload) => {
                 const title = payload.data ? payload.data.title : (payload.notification ? payload.notification.title : 'Новое сообщение');
                 const body = payload.data ? payload.data.body : (payload.notification ? payload.notification.body : '');
+                const msgChatId = payload.data ? payload.data.chatId : null;
+                const msgType = payload.data ? payload.data.type : null;
                 
-                showSnackbar(`Новое сообщение: ${title}`);
-                // Trigger native Windows notification if the tab is open but running in the background
-                if (Notification.permission === 'granted' && document.hidden) {
+                // If the user is currently viewing the exact chat this message is for, suppress everything
+                if (msgChatId && msgChatId === activeChatId && !document.hidden) {
+                    return; // User already sees the message in real-time
+                }
+
+                // If the tab is visible but user is in a different chat — show only snackbar
+                if (!document.hidden) {
+                    showSnackbar(`${title}: ${body}`);
+                    return;
+                }
+
+                // Tab is hidden — show snackbar + system notification
+                showSnackbar(`${title}: ${body}`);
+                if (Notification.permission === 'granted') {
                     new Notification(title, {
                         body: body,
                         icon: 'https://ui-avatars.com/api/?name=MThread&background=d0e2ff&color=53647d'
@@ -634,6 +647,22 @@ document.addEventListener('DOMContentLoaded', () => {
         activeChatId = chatId;
         activeChatUser = { uid: targetUid, ...(targetData || {}) };
         
+        const isChannel = targetData && targetData.isChannel === true;
+        const isAdmin = isChannel && targetData.admins && targetData.admins.includes(currentUser.uid);
+
+        const msgForm = document.getElementById('message-form');
+        const channelNotice = document.getElementById('channel-only-admins-notice');
+
+        if (msgForm && channelNotice) {
+            if (isChannel && !isAdmin) {
+                msgForm.classList.add('hidden');
+                channelNotice.classList.remove('hidden');
+            } else {
+                msgForm.classList.remove('hidden');
+                channelNotice.classList.add('hidden');
+            }
+        }
+
         activeChatName.textContent = (targetData && targetData.username) ? targetData.username : 'Чат';
         chatOptionsBtn.classList.remove('hidden');
         
@@ -1052,7 +1081,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     `;
                     fileDiv.addEventListener('click', (ev) => {
                         ev.stopPropagation();
-                        window.open(att.url, '_blank');
+                        if (confirm(`Открыть файл "${escapeHtml(att.name)}" для просмотра?`)) {
+                            window.open(att.url, '_blank');
+                        }
                     });
                     
                     const downloadBtn = fileDiv.querySelector('.download-btn');
@@ -1444,6 +1475,22 @@ document.addEventListener('DOMContentLoaded', () => {
             document.querySelectorAll('#sidebar-avatar, #settings-avatar-preview').forEach(img => {
                 img.src = avatarUrl;
             });
+
+            // Update app/web version in profile dialog
+            const versionEl = document.getElementById('app-version-text');
+            if (versionEl) {
+                if (window.AndroidApp && typeof window.AndroidApp.getAppVersion === 'function') {
+                    try {
+                        const appVer = window.AndroidApp.getAppVersion();
+                        versionEl.textContent = `App ${appVer}`;
+                    } catch (e) {
+                        console.error("Failed to fetch Android app version:", e);
+                        versionEl.textContent = 'Web 1.2.0';
+                    }
+                } else {
+                    versionEl.textContent = 'Web 1.2.0';
+                }
+            }
         }
     };
 
@@ -1572,71 +1619,106 @@ document.addEventListener('DOMContentLoaded', () => {
         createGroupBtn.textContent = 'Создать группу';
     });
 
+    let groupsUnsubscribe = null;
+    let channelsUnsubscribe = null;
+
     function loadGroupList() {
         if (chatsUnsubscribe) chatsUnsubscribe();
+        if (groupsUnsubscribe) groupsUnsubscribe();
+        if (channelsUnsubscribe) channelsUnsubscribe();
         
-        chatsUnsubscribe = db.collection('groups')
-            .where('participants', 'array-contains', currentUser.uid)
-            .onSnapshot(snapshot => {
-                const groups = [];
-                snapshot.forEach(doc => groups.push({ id: doc.id, ...doc.data() }));
-                groups.sort((a, b) => {
-                    const timeA = a.lastUpdated ? a.lastUpdated.toMillis() : 0;
-                    const timeB = b.lastUpdated ? b.lastUpdated.toMillis() : 0;
-                    return timeB - timeA;
+        let userGroups = [];
+        let publicChannels = [];
+
+        function renderMergedList() {
+            const mergedMap = new Map();
+            userGroups.forEach(g => mergedMap.set(g.id, g));
+            publicChannels.forEach(c => mergedMap.set(c.id, c));
+            const groups = Array.from(mergedMap.values());
+
+            groups.sort((a, b) => {
+                const timeA = a.lastUpdated ? a.lastUpdated.toMillis() : 0;
+                const timeB = b.lastUpdated ? b.lastUpdated.toMillis() : 0;
+                return timeB - timeA;
+            });
+
+            chatListContainer.innerHTML = '';
+            if(groups.length === 0) {
+                chatListContainer.innerHTML = '<div class="p-6 text-on-surface-variant text-sm text-center">Вы не состоите ни в одной группе.</div>';
+                return;
+            }
+
+            groups.forEach(group => {
+                const time = group.lastUpdated ? new Date(group.lastUpdated.toDate()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
+                
+                const div = document.createElement('div');
+                div.className = `chat-item-btn p-4 md:px-6 flex gap-4 cursor-pointer transition-all ripple-container ${activeChatId === group.id ? 'bg-white/10' : 'hover:bg-white/5'}`;
+                
+                const isChannel = group.isChannel === true;
+                const avatar = isChannel 
+                    ? `https://ui-avatars.com/api/?name=Updates&background=6750a4&color=ffffff`
+                    : `https://ui-avatars.com/api/?name=${group.name}&background=53647d&color=d0e2ff`;
+                
+                div.innerHTML = `
+                    <div class="relative shrink-0">
+                        <img src="${avatar}" class="w-12 h-12 rounded-xl object-cover">
+                        ${isChannel ? '<span class="absolute -bottom-1 -right-1 bg-primary text-white text-[9px] px-1 rounded font-bold uppercase tracking-wider scale-90">Канал</span>' : ''}
+                    </div>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-baseline mb-1">
+                            <h4 class="text-sm font-semibold text-white truncate flex items-center gap-1.5">
+                                ${isChannel ? '<span class="material-symbols-outlined text-sm text-primary">campaign</span>' : ''}
+                                ${escapeHtml(group.name)}
+                            </h4>
+                            <span class="text-[10px] text-on-surface-variant/60">${time}</span>
+                        </div>
+                        <p class="text-xs text-on-surface-variant/60 truncate">${group.lastMessage !== undefined && group.lastMessage !== null && group.lastMessage !== "" ? escapeHtml(group.lastMessage) : (group.lastMessage === "" ? "" : "Нет сообщений")}</p>
+                    </div>
+                `;
+
+                div.onclick = () => openChat(group.id, null, { username: group.name, isGroup: true, isChannel: isChannel, admins: group.admins });
+                chatListContainer.appendChild(div);
+
+                // Context Menu Delete Group
+                div.addEventListener('contextmenu', async (e) => {
+                    e.preventDefault();
+                    if (isChannel) return;
+                    if (confirm(`Удалить группу "${group.name}" для всех?`)) {
+                        await deleteEntireChat(group.id, true);
+                    }
                 });
 
-                chatListContainer.innerHTML = '';
-                if(groups.length === 0) {
-                    chatListContainer.innerHTML = '<div class="p-6 text-on-surface-variant text-sm text-center">Вы не состоите ни в одной группе.</div>';
-                }
-
-                groups.forEach(group => {
-                    const time = group.lastUpdated ? new Date(group.lastUpdated.toDate()).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) : '';
-                    
-                    const div = document.createElement('div');
-                    div.className = `chat-item-btn p-4 md:px-6 flex gap-4 cursor-pointer transition-all ripple-container ${activeChatId === group.id ? 'bg-white/10' : 'hover:bg-white/5'}`;
-                    
-                    const avatar = `https://ui-avatars.com/api/?name=${group.name}&background=53647d&color=d0e2ff`;
-                    
-                    div.innerHTML = `
-                        <div class="relative shrink-0">
-                            <img src="${avatar}" class="w-12 h-12 rounded-xl object-cover">
-                        </div>
-                        <div class="flex-1 min-w-0">
-                            <div class="flex justify-between items-baseline mb-1">
-                                <h4 class="text-sm font-semibold text-white truncate">${escapeHtml(group.name)}</h4>
-                                <span class="text-[10px] text-on-surface-variant/60">${time}</span>
-                            </div>
-                            <p class="text-xs text-on-surface-variant/60 truncate">${group.lastMessage !== undefined && group.lastMessage !== null && group.lastMessage !== "" ? escapeHtml(group.lastMessage) : (group.lastMessage === "" ? "" : "Нет сообщений")}</p>
-                        </div>
-                    `;
-
-                    div.onclick = () => openChat(group.id, null, { username: group.name, isGroup: true });
-                    chatListContainer.appendChild(div);
-
-                    // Context Menu Delete Group
-                    div.addEventListener('contextmenu', async (e) => {
-                        e.preventDefault();
+                // Long press for mobile
+                let pressTimer;
+                div.addEventListener('touchstart', (e) => {
+                    if (isChannel) return;
+                    pressTimer = window.setTimeout(async () => {
                         if (confirm(`Удалить группу "${group.name}" для всех?`)) {
                             await deleteEntireChat(group.id, true);
                         }
-                    });
-
-                    // Long press for mobile
-                    let pressTimer;
-                    div.addEventListener('touchstart', (e) => {
-                        pressTimer = window.setTimeout(async () => {
-                            if (confirm(`Удалить группу "${group.name}" для всех?`)) {
-                                await deleteEntireChat(group.id, true);
-                            }
-                        }, 800);
-                    });
-                    div.addEventListener('touchend', () => clearTimeout(pressTimer));
-                    div.addEventListener('touchmove', () => clearTimeout(pressTimer));
+                    }, 800);
                 });
-                attachRipples();
+                div.addEventListener('touchend', () => clearTimeout(pressTimer));
+                div.addEventListener('touchmove', () => clearTimeout(pressTimer));
             });
+            attachRipples();
+        }
+
+        groupsUnsubscribe = db.collection('groups')
+            .where('participants', 'array-contains', currentUser.uid)
+            .onSnapshot(snapshot => {
+                userGroups = [];
+                snapshot.forEach(doc => userGroups.push({ id: doc.id, ...doc.data() }));
+                renderMergedList();
+            }, err => console.error("Groups snapshot error:", err));
+
+        channelsUnsubscribe = db.collection('groups')
+            .where('isChannel', '==', true)
+            .onSnapshot(snapshot => {
+                publicChannels = [];
+                snapshot.forEach(doc => publicChannels.push({ id: doc.id, ...doc.data() }));
+                renderMergedList();
+            }, err => console.error("Channels snapshot error:", err));
     }
 
     // Show specific step
@@ -1969,6 +2051,15 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('group-save-btn')?.addEventListener('click', saveGroupSettings);
     document.getElementById('mob-nav-dm')?.addEventListener('click', () => switchTab('dm'));
     document.getElementById('mob-nav-groups')?.addEventListener('click', () => switchTab('groups'));
+    document.getElementById('open-updates-channel-btn')?.addEventListener('click', () => {
+        closeSettings();
+        openChat('mthread_updates_channel', null, { 
+            username: 'MThread Updates', 
+            isGroup: true, 
+            isChannel: true, 
+            admins: ['V00K9mKsnwSZ2K736cQW9c5JvQ92', 'L714fXzR4QYVrnkEsnV92bMThread']
+        });
+    });
 
     // --- MFA Setup Logic ---
     _mfaSetupRecaptcha = null;
@@ -2718,11 +2809,25 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function toggleSpeaker() {
-        if (peerConnection) {
-            isSpeakerOn = !isSpeakerOn;
-            updateSpeakerUI();
-            if (window.AndroidApp && typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
-                window.AndroidApp.setSpeakerphoneOn(isSpeakerOn);
+        if (window.AndroidApp) {
+            // Android: toggle speakerphone as before
+            if (peerConnection) {
+                isSpeakerOn = !isSpeakerOn;
+                updateSpeakerUI();
+                if (typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
+                    window.AndroidApp.setSpeakerphoneOn(isSpeakerOn);
+                }
+            }
+        } else {
+            // PC: toggle audio device selection panel
+            const panel = document.getElementById('audio-device-panel');
+            if (panel) {
+                if (panel.classList.contains('hidden')) {
+                    populateAudioDevices();
+                    panel.classList.remove('hidden');
+                } else {
+                    panel.classList.add('hidden');
+                }
             }
         }
     }
@@ -2731,16 +2836,108 @@ document.addEventListener('DOMContentLoaded', () => {
         const btn = document.getElementById('btn-speaker-call');
         const icon = document.getElementById('speaker-icon');
         if (btn && icon) {
-            if (isSpeakerOn) {
-                btn.classList.add('bg-primary-container', 'text-on-primary-container');
-                btn.classList.remove('bg-white/5', 'text-white');
-                icon.textContent = 'volume_up';
+            if (window.AndroidApp) {
+                // Android mode: show speaker on/off
+                if (isSpeakerOn) {
+                    btn.classList.add('bg-primary-container', 'text-on-primary-container');
+                    btn.classList.remove('bg-white/5', 'text-white');
+                    icon.textContent = 'volume_up';
+                } else {
+                    btn.classList.remove('bg-primary-container', 'text-on-primary-container');
+                    btn.classList.add('bg-white/5', 'text-white');
+                    icon.textContent = 'volume_down';
+                }
             } else {
-                btn.classList.remove('bg-primary-container', 'text-on-primary-container');
-                btn.classList.add('bg-white/5', 'text-white');
-                icon.textContent = 'volume_down';
+                // PC mode: always show settings_voice icon
+                icon.textContent = 'settings_voice';
             }
         }
+    }
+
+    async function populateAudioDevices() {
+        try {
+            const devices = await navigator.mediaDevices.enumerateDevices();
+            const inputSelect = document.getElementById('audio-input-select');
+            const outputSelect = document.getElementById('audio-output-select');
+            const outputContainer = document.getElementById('audio-output-container');
+
+            if (inputSelect) {
+                const currentInputId = localStream ? localStream.getAudioTracks()[0]?.getSettings()?.deviceId : null;
+                inputSelect.innerHTML = '';
+                let micCount = 0;
+                devices.filter(d => d.kind === 'audioinput').forEach(d => {
+                    micCount++;
+                    const opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label || `Микрофон ${micCount}`;
+                    if (currentInputId && d.deviceId === currentInputId) opt.selected = true;
+                    inputSelect.appendChild(opt);
+                });
+            }
+
+            // Output device selection via setSinkId (Chrome/Edge only)
+            const supportsSinkId = typeof HTMLMediaElement.prototype.setSinkId === 'function';
+            if (outputContainer) {
+                outputContainer.style.display = supportsSinkId ? '' : 'none';
+            }
+            if (outputSelect && supportsSinkId) {
+                outputSelect.innerHTML = '';
+                let spkCount = 0;
+                devices.filter(d => d.kind === 'audiooutput').forEach(d => {
+                    spkCount++;
+                    const opt = document.createElement('option');
+                    opt.value = d.deviceId;
+                    opt.textContent = d.label || `Динамик ${spkCount}`;
+                    outputSelect.appendChild(opt);
+                });
+            }
+        } catch (e) {
+            console.error('Failed to enumerate audio devices:', e);
+        }
+    }
+
+    // Handle microphone change
+    const audioInputSelect = document.getElementById('audio-input-select');
+    if (audioInputSelect) {
+        audioInputSelect.addEventListener('change', async (e) => {
+            const deviceId = e.target.value;
+            if (!peerConnection || !localStream) return;
+            try {
+                const newStream = await navigator.mediaDevices.getUserMedia({ audio: { deviceId: { exact: deviceId } } });
+                const newTrack = newStream.getAudioTracks()[0];
+                const sender = peerConnection.getSenders().find(s => s.track && s.track.kind === 'audio');
+                if (sender) {
+                    await sender.replaceTrack(newTrack);
+                }
+                // Stop old tracks
+                localStream.getAudioTracks().forEach(t => t.stop());
+                // Replace in localStream reference
+                localStream.removeTrack(localStream.getAudioTracks()[0]);
+                localStream.addTrack(newTrack);
+                // Preserve mute state
+                newTrack.enabled = !isCallMuted;
+            } catch (err) {
+                console.error('Failed to switch microphone:', err);
+                showSnackbar('Не удалось переключить микрофон');
+            }
+        });
+    }
+
+    // Handle speaker/output change
+    const audioOutputSelect = document.getElementById('audio-output-select');
+    if (audioOutputSelect) {
+        audioOutputSelect.addEventListener('change', async (e) => {
+            const deviceId = e.target.value;
+            const remoteAudio = document.getElementById('remote-audio');
+            if (remoteAudio && typeof remoteAudio.setSinkId === 'function') {
+                try {
+                    await remoteAudio.setSinkId(deviceId);
+                } catch (err) {
+                    console.error('Failed to switch audio output:', err);
+                    showSnackbar('Не удалось переключить динамик');
+                }
+            }
+        });
     }
 
     // Call Actions Click Bindings

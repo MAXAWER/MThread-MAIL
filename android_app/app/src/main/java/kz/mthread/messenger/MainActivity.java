@@ -421,6 +421,11 @@ public class MainActivity extends AppCompatActivity {
         }
 
         @JavascriptInterface
+        public String getAppVersion() {
+            return BuildConfig.VERSION_NAME;
+        }
+
+        @JavascriptInterface
         public void setCallActive(final boolean active) {
             runOnUiThread(() -> {
                 isCallActive = active;

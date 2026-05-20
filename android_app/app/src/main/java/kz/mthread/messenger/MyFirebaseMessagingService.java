@@ -70,13 +70,37 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         }
 
         if ("call".equals(type)) {
+            String callerName = data != null ? data.get("callerName") : null;
+            
+            // Start Ringtone Foreground Service
+            Intent ringtoneIntent = new Intent(this, RingtoneService.class);
+            try {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(ringtoneIntent);
+                } else {
+                    startService(ringtoneIntent);
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Failed to start RingtoneService", e);
+            }
+
             sendCallNotification(
                 title != null ? title : "Входящий вызов", 
                 body != null ? body : "Вам звонят", 
-                chatId
+                chatId,
+                callerName != null ? callerName : "Пользователь"
             );
         } else if ("call_cancelled".equals(type)) {
-            Log.d(TAG, "Call cancelled/ended/connected. Dismissing notification for: " + chatId);
+            Log.d(TAG, "Call cancelled/ended/connected. Dismissing notification and stopping ringtone for: " + chatId);
+            
+            // Stop Ringtone Service
+            Intent stopRingtone = new Intent(this, RingtoneService.class);
+            stopService(stopRingtone);
+
+            // Broadcast call cancellation to close IncomingCallActivity
+            Intent cancelBroadcast = new Intent("kz.mthread.messenger.CALL_CANCELLED");
+            sendBroadcast(cancelBroadcast);
+
             if (chatId != null && !chatId.isEmpty()) {
                 int notificationId = chatId.hashCode();
                 NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
@@ -145,26 +169,26 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
         }
     }
 
-    private void sendCallNotification(String title, String messageBody, String callId) {
+    private void sendCallNotification(String title, String messageBody, String callId, String callerName) {
         if (callId == null || callId.isEmpty()) return;
 
-        // Intent for clicking the notification itself (will also act as Accept)
-        Intent clickIntent = new Intent(this, MainActivity.class);
-        clickIntent.putExtra("callId", callId);
-        clickIntent.putExtra("action", "accept");
-        clickIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        
         int pendingFlags = PendingIntent.FLAG_UPDATE_CURRENT;
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             pendingFlags |= PendingIntent.FLAG_IMMUTABLE;
         }
+
+        // Intent for clicking the notification itself / full screen overlay (targets IncomingCallActivity)
+        Intent clickIntent = new Intent(this, IncomingCallActivity.class);
+        clickIntent.putExtra("callId", callId);
+        clickIntent.putExtra("callerName", callerName);
+        clickIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent clickPendingIntent = PendingIntent.getActivity(this, (int) System.currentTimeMillis(), clickIntent, pendingFlags);
 
-        // Intent for the Accept button
+        // Intent for the Accept button (targets MainActivity to accept call)
         Intent acceptIntent = new Intent(this, MainActivity.class);
         acceptIntent.putExtra("callId", callId);
         acceptIntent.putExtra("action", "accept");
-        acceptIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        acceptIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
         PendingIntent acceptPendingIntent = PendingIntent.getActivity(this, (int) System.currentTimeMillis() + 1, acceptIntent, pendingFlags);
 
         // Intent for the Decline button (targets BroadcastReceiver)
@@ -191,7 +215,7 @@ public class MyFirebaseMessagingService extends FirebaseMessagingService {
                         .setAutoCancel(true)
                         .setSound(ringtoneUri)
                         .setContentIntent(clickPendingIntent)
-                        .setFullScreenIntent(clickPendingIntent, true) // Show as overlay banner
+                        .setFullScreenIntent(clickPendingIntent, true) // Show as full-screen intent / overlay banner
                         .addAction(android.R.drawable.ic_menu_call, "Принять", acceptPendingIntent)
                         .addAction(android.R.drawable.ic_menu_close_clear_cancel, "Отклонить", declinePendingIntent);
 

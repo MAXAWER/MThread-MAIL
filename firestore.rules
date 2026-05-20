@@ -69,26 +69,44 @@ service cloud.firestore {
       }
     }
 
-    // groups
+    // groups and channels
     match /groups/{groupId} {
-      // Allow read if user is a participant
-      allow read: if isAuth() && request.auth.uid in resource.data.participants;
+      // Allow read if user is a participant OR if it's a public channel
+      allow read: if isAuth() && (
+        request.auth.uid in resource.data.participants ||
+        resource.data.isChannel == true
+      );
       // Creation, deletion and metadata updates are handled by Cloud Functions (admin SDK)
       allow create: if false;
       allow delete: if false;
       
       // Allow updating only messaging metadata (lastMessage, typing, etc.)
       allow update: if isAuth() 
-                    && request.auth.uid in resource.data.participants
+                    && (request.auth.uid in resource.data.participants || resource.data.isChannel == true)
                     && request.resource.data.diff(resource.data).affectedKeys()
                        .hasOnly(['lastMessage', 'lastMessageSender', 'lastUpdated', 'typing']);
 
       // Messages inside groups
       match /messages/{messageId} {
-        allow read: if isAuth() && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.participants;
-        allow create: if isAuth() 
-                      && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.participants
-                      && isValidMessage();
+        allow read: if isAuth() && (
+          request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.participants ||
+          get(/databases/$(database)/documents/groups/$(groupId)).data.isChannel == true
+        );
+        // For channels: only admins can create messages. For groups: any participant.
+        allow create: if isAuth() && (
+          (
+            get(/databases/$(database)/documents/groups/$(groupId)).data.isChannel == true
+            && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.admins
+            && request.resource.data.text is string
+            && request.resource.data.text.size() <= 2000
+            && request.resource.data.userId == request.auth.uid
+          )
+          ||
+          (
+            request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.participants
+            && isValidMessage()
+          )
+        );
         allow update: if isAuth() 
                       && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.participants
                       && resource.data.userId == request.auth.uid
