@@ -900,10 +900,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         </div>
                         <div class="flex-1 min-w-0">
                             <div class="flex justify-between items-baseline mb-1">
-                                <h4 class="text-sm font-semibold text-white truncate">${escapeHtml(targetData.username || '...')}</h4>
+                                <h4 class="text-[15px] font-semibold text-white truncate">${escapeHtml(targetData.username || '...')}</h4>
                                 <span class="text-[10px] text-on-surface-variant/60">${time}</span>
                             </div>
-                            <p class="text-xs text-on-surface-variant/60 truncate">${chat.lastMessageSender === currentUser.uid ? '<span class="text-on-surface-variant font-bold">Вы:</span> ' : ''}${chat.lastMessage !== undefined && chat.lastMessage !== null && chat.lastMessage !== "" ? escapeHtml(chat.lastMessage) : (chat.lastMessage === "" ? "" : "Начать диалог")}</p>
+                            <p class="text-[13px] text-on-surface-variant/60 truncate">${chat.lastMessageSender === currentUser.uid ? '<span class="text-on-surface-variant font-bold">Вы:</span> ' : ''}${chat.lastMessage !== undefined && chat.lastMessage !== null && chat.lastMessage !== "" ? escapeHtml(chat.lastMessage) : (chat.lastMessage === "" ? "" : "Начать диалог")}</p>
                         </div>
                     `;
 
@@ -1077,7 +1077,11 @@ document.addEventListener('DOMContentLoaded', () => {
         const isGroup = activeChatUser && activeChatUser.isGroup;
 
         const bubble = document.createElement('div');
-        bubble.className = `msg-bubble cursor-pointer ${isMe ? 'bg-primary-container text-on-primary-container rounded-[24px] rounded-br-sm' : 'bg-surface-container text-white rounded-[24px] rounded-bl-sm'} p-4 shadow-lg transition-all active:scale-[0.98]`;
+        bubble.className = `msg-bubble cursor-pointer ${
+            isMe 
+            ? 'bg-gradient-to-br from-[#2f6bf2] to-[#1d4ed8] text-white rounded-[24px] rounded-br-sm' 
+            : 'bg-[#151719] text-white rounded-[24px] rounded-bl-sm border border-white/[0.06] shadow-xl'
+        } px-5 py-3 md:px-6 md:py-3.5 shadow-lg transition-all active:scale-[0.98]`;
 
         if (isGroup && !isMe) {
             const senderSpan = document.createElement('span');
@@ -1216,7 +1220,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         if (msg.text && msg.text.trim() !== '') {
             const textP = document.createElement('p');
-            textP.className = 'msg-text text-sm md:text-base leading-relaxed break-words whitespace-pre-wrap';
+            textP.className = 'msg-text text-[15px] md:text-[16px] leading-relaxed break-words whitespace-pre-wrap font-medium';
             textP.textContent = msg.text;
             bubble.appendChild(textP);
         }
@@ -2057,13 +2061,13 @@ document.addEventListener('DOMContentLoaded', () => {
                     </div>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-baseline mb-1">
-                            <h4 class="text-sm font-semibold text-white truncate flex items-center gap-1.5">
+                            <h4 class="text-[15px] font-semibold text-white truncate flex items-center gap-1.5">
                                 ${isChannel ? '<span class="material-symbols-outlined text-sm text-primary">campaign</span>' : ''}
                                 ${escapeHtml(group.name)}
                             </h4>
                             <span class="text-[10px] text-on-surface-variant/60">${time}</span>
                         </div>
-                        <p class="text-xs text-on-surface-variant/60 truncate">${group.lastMessage !== undefined && group.lastMessage !== null && group.lastMessage !== "" ? escapeHtml(group.lastMessage) : (group.lastMessage === "" ? "" : "Нет сообщений")}</p>
+                        <p class="text-[13px] text-on-surface-variant/60 truncate">${group.lastMessage !== undefined && group.lastMessage !== null && group.lastMessage !== "" ? escapeHtml(group.lastMessage) : (group.lastMessage === "" ? "" : "Нет сообщений")}</p>
                     </div>
                 `;
 
@@ -2458,34 +2462,61 @@ document.addEventListener('DOMContentLoaded', () => {
     function updatePushUI() {
         const statusText = document.getElementById('push-status-text');
         const setupBtn = document.getElementById('push-setup-btn');
-        if (!statusText || !setupBtn) return;
+        const mainBanner = document.getElementById('main-push-banner');
+        const mainBannerText = document.getElementById('main-push-banner-text');
+        const mainBannerBtn = document.getElementById('main-push-banner-btn');
         
         if (window.AndroidApp) {
-            statusText.textContent = 'Включены (через Android-приложение).';
-            statusText.className = 'text-green-400 text-xs mt-0.5';
-            setupBtn.classList.add('hidden');
+            if (statusText) {
+                statusText.textContent = 'Включены (через Android-приложение).';
+                statusText.className = 'text-green-400 text-[12px] mt-1 leading-relaxed';
+            }
+            setupBtn?.classList.add('hidden');
+            mainBanner?.classList.add('hidden');
             return;
         }
         
         if (!('Notification' in window)) {
-            statusText.textContent = 'Не поддерживается вашим браузером.';
-            setupBtn.classList.add('hidden');
+            if (statusText) {
+                statusText.textContent = 'Не поддерживается вашим браузером.';
+            }
+            setupBtn?.classList.add('hidden');
+            mainBanner?.classList.add('hidden');
             return;
         }
         
         const permission = Notification.permission;
         if (permission === 'granted') {
-            statusText.textContent = 'Включены. Вы будете получать важные сообщения.';
-            statusText.className = 'text-green-400 text-xs mt-0.5';
-            setupBtn.classList.add('hidden');
+            if (statusText) {
+                statusText.textContent = 'Включены. Вы будете получать важные сообщения.';
+                statusText.className = 'text-green-400 text-[12px] mt-1 leading-relaxed';
+            }
+            setupBtn?.classList.add('hidden');
+            mainBanner?.classList.add('hidden');
         } else if (permission === 'default') {
-            statusText.textContent = 'Не настроены. Включите, чтобы не пропустить сообщения.';
-            statusText.className = 'text-on-surface-variant text-xs mt-0.5';
-            setupBtn.classList.remove('hidden');
+            if (statusText) {
+                statusText.textContent = 'Не настроены. Включите, чтобы не пропустить сообщения.';
+                statusText.className = 'text-on-surface-variant text-[12px] mt-1 leading-relaxed';
+            }
+            setupBtn?.classList.remove('hidden');
+            
+            mainBanner?.classList.remove('hidden');
+            if (mainBannerText) {
+                mainBannerText.textContent = 'Уведомления отключены. Вы можете пропустить входящие сообщения и звонки.';
+            }
+            mainBannerBtn?.classList.remove('hidden');
         } else {
-            statusText.textContent = 'Доступ заблокирован в браузере. Разрешите его в настройках сайта (нажмите на значок параметров 🎛️ или замок 🔒 слева от адреса).';
-            statusText.className = 'text-red-400 text-xs mt-0.5';
-            setupBtn.classList.add('hidden');
+            if (statusText) {
+                statusText.textContent = 'Доступ заблокирован в браузере. Разрешите его в настройках сайта (нажмите на значок параметров 🎛️ или замок 🔒 слева от адреса).';
+                statusText.className = 'text-red-400 text-[12px] mt-1 leading-relaxed';
+            }
+            setupBtn?.classList.add('hidden');
+            
+            mainBanner?.classList.remove('hidden');
+            if (mainBannerText) {
+                mainBannerText.textContent = 'Доступ к уведомлениям заблокирован в браузере. Разрешите уведомления в настройках сайта (нажмите на замок 🔒 слева от адреса).';
+            }
+            mainBannerBtn?.classList.add('hidden');
         }
     }
 
@@ -2507,6 +2538,28 @@ document.addEventListener('DOMContentLoaded', () => {
         } finally {
             btn.disabled = false;
             btn.textContent = 'Включить';
+            updatePushUI();
+        }
+    });
+
+    document.getElementById('main-push-banner-btn')?.addEventListener('click', async () => {
+        const btn = document.getElementById('main-push-banner-btn');
+        btn.disabled = true;
+        btn.textContent = 'Включение...';
+        try {
+            const permission = await Notification.requestPermission();
+            updatePushUI();
+            if (permission === 'granted') {
+                showSnackbar('Уведомления успешно включены!');
+                await setupPushNotifications(true);
+            } else if (permission === 'denied') {
+                showSnackbar('Доступ отклонен. Разрешите уведомления в настройках сайта.');
+            }
+        } catch (e) {
+            showSnackbar('Ошибка запроса прав: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = 'Включить уведомления';
             updatePushUI();
         }
     });
