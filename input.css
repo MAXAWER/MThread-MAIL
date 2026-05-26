@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@source "./*.js";
+@source "./*.html";
 
 @theme {
   --color-surface: #121416;
@@ -269,7 +271,100 @@ body { background-color: #000; }
 .custom-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 10px; }
 @media (max-width: 767px) {
     .chat-list-panel { width: 100% !important; }
-    .main-chat-panel { width: 100% !important; position: fixed; inset: 0; z-index: 50; display: none; }
+    .main-chat-panel { width: 100% !important; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 50; display: none; }
     .chat-active .main-chat-panel { display: flex !important; }
     .chat-active .chat-list-panel { display: none !important; }
+}
+
+/* Physical property fallbacks for compatibility with older browsers/WebViews */
+.inset-0 {
+    top: 0 !important;
+    left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+}
+.inset-2 {
+    top: 8px !important;
+    left: 8px !important;
+    right: 8px !important;
+    bottom: 8px !important;
+}
+.mx-auto {
+    margin-left: auto !important;
+    margin-right: auto !important;
+}
+.mx-4 {
+    margin-left: 16px !important;
+    margin-right: 16px !important;
+}
+.px-1 {
+    padding-left: 4px !important;
+    padding-right: 4px !important;
+}
+.px-2 {
+    padding-left: 8px !important;
+    padding-right: 8px !important;
+}
+.px-3 {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+}
+.px-4 {
+    padding-left: 16px !important;
+    padding-right: 16px !important;
+}
+.px-6 {
+    padding-left: 24px !important;
+    padding-right: 24px !important;
+}
+.py-1 {
+    padding-top: 4px !important;
+    padding-bottom: 4px !important;
+}
+.py-1\.5 {
+    padding-top: 6px !important;
+    padding-bottom: 6px !important;
+}
+.py-2 {
+    padding-top: 8px !important;
+    padding-bottom: 8px !important;
+}
+.py-2\.5 {
+    padding-top: 10px !important;
+    padding-bottom: 10px !important;
+}
+.py-3 {
+    padding-top: 12px !important;
+    padding-bottom: 12px !important;
+}
+.py-4 {
+    padding-top: 16px !important;
+    padding-bottom: 16px !important;
+}
+.py-6 {
+    padding-top: 24px !important;
+    padding-bottom: 24px !important;
+}
+.py-8 {
+    padding-top: 32px !important;
+    padding-bottom: 32px !important;
+}
+
+@media (min-width: 48rem) {
+    .md\:px-6 {
+        padding-left: 24px !important;
+        padding-right: 24px !important;
+    }
+    .md\:px-8 {
+        padding-left: 32px !important;
+        padding-right: 32px !important;
+    }
+    .md\:px-12 {
+        padding-left: 48px !important;
+        padding-right: 48px !important;
+    }
+    .md\:py-3 {
+        padding-top: 12px !important;
+        padding-bottom: 12px !important;
+    }
 }

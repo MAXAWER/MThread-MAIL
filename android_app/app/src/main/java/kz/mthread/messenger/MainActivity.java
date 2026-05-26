@@ -33,6 +33,7 @@ import android.net.Uri;
 import android.webkit.ValueCallback;
 import android.webkit.DownloadListener;
 import android.webkit.URLUtil;
+import android.app.NotificationManager;
 
 public class MainActivity extends AppCompatActivity {
 
@@ -237,6 +238,21 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onAccuracyChanged(Sensor sensor, int accuracy) {}
         };
+
+        if (getIntent() != null && getIntent().getBooleanExtra("prewarm", false)) {
+            Log.d(TAG, "prewarm flag detected in onCreate. Moving task to back.");
+            moveTaskToBack(true);
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (getIntent() != null && getIntent().getBooleanExtra("prewarm", false)) {
+            Log.d(TAG, "prewarm flag detected in onResume. Moving task to back.");
+            moveTaskToBack(true);
+            getIntent().removeExtra("prewarm");
+        }
     }
 
     @Override
@@ -244,6 +260,10 @@ public class MainActivity extends AppCompatActivity {
         super.onNewIntent(intent);
         setIntent(intent);
         handleNotificationIntent(intent);
+        if (intent != null && intent.getBooleanExtra("prewarm", false)) {
+            Log.d(TAG, "prewarm flag detected in onNewIntent. Moving task to back.");
+            moveTaskToBack(true);
+        }
     }
 
     private void handleNotificationIntent(android.content.Intent intent) {
@@ -254,10 +274,38 @@ public class MainActivity extends AppCompatActivity {
             String callId = intent.getStringExtra("callId");
             Log.d(TAG, "Notification call accept intent received. callId: " + callId);
             if (callId != null && !callId.isEmpty()) {
+                // Cancel notification
+                int notificationId = callId.hashCode();
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    nm.cancel(notificationId);
+                }
                 runOnUiThread(() -> {
                     if (myWebView != null) {
                         myWebView.evaluateJavascript(
                             "if (typeof acceptCallFromNotification === 'function') { acceptCallFromNotification('" + callId + "'); } else { window.pendingNotificationCall = '" + callId + "'; }",
+                            null
+                        );
+                    }
+                });
+            }
+        }
+
+        // Handle incoming call open action from notifications or incoming call screen
+        if ("open".equals(intent.getStringExtra("action"))) {
+            String callId = intent.getStringExtra("callId");
+            Log.d(TAG, "Notification call open intent received. callId: " + callId);
+            if (callId != null && !callId.isEmpty()) {
+                // Cancel notification
+                int notificationId = callId.hashCode();
+                NotificationManager nm = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (nm != null) {
+                    nm.cancel(notificationId);
+                }
+                runOnUiThread(() -> {
+                    if (myWebView != null) {
+                        myWebView.evaluateJavascript(
+                            "if (typeof openCallFromNotification === 'function') { openCallFromNotification('" + callId + "'); } else { window.pendingNotificationCallOpen = '" + callId + "'; }",
                             null
                         );
                     }
@@ -315,6 +363,11 @@ public class MainActivity extends AppCompatActivity {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
                 list.add(Manifest.permission.POST_NOTIFICATIONS);
+            }
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if (ContextCompat.checkSelfPermission(this, Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED) {
+                list.add(Manifest.permission.BLUETOOTH_CONNECT);
             }
         }
         if (!list.isEmpty()) {
@@ -508,6 +561,127 @@ public class MainActivity extends AppCompatActivity {
                     }
                 } catch (Exception e) {
                     Log.e(TAG, "Error setting speakerphone", e);
+                }
+            });
+        }
+
+        @JavascriptInterface
+        public String getAudioOutputs() {
+            java.util.ArrayList<String> outputs = new java.util.ArrayList<>();
+            outputs.add("speaker");
+            
+            AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+            if (audioManager != null) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    java.util.List<android.media.AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
+                    boolean hasEarpiece = false;
+                    boolean hasBluetooth = false;
+                    for (android.media.AudioDeviceInfo device : devices) {
+                        int type = device.getType();
+                        if (type == android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
+                            hasEarpiece = true;
+                        } else if (type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                                   type == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                                   type == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                                   type == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER) {
+                            hasBluetooth = true;
+                        }
+                    }
+                    if (hasEarpiece) outputs.add("earpiece");
+                    if (hasBluetooth) outputs.add("bluetooth");
+                } else {
+                    outputs.add("earpiece");
+                    if (audioManager.isBluetoothScoOn() || audioManager.isBluetoothA2dpOn()) {
+                        outputs.add("bluetooth");
+                    }
+                }
+            } else {
+                outputs.add("earpiece");
+            }
+            
+            StringBuilder sb = new StringBuilder();
+            sb.append("[");
+            for (int i = 0; i < outputs.size(); i++) {
+                sb.append("\"").append(outputs.get(i)).append("\"");
+                if (i < outputs.size() - 1) {
+                    sb.append(",");
+                }
+            }
+            sb.append("]");
+            return sb.toString();
+        }
+
+        @JavascriptInterface
+        public void setAudioOutput(final String type) {
+            runOnUiThread(() -> {
+                try {
+                    AudioManager audioManager = (AudioManager) getSystemService(Context.AUDIO_SERVICE);
+                    if (audioManager == null) return;
+                    
+                    Log.d(TAG, "setAudioOutput requested: " + type);
+                    
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                        audioManager.clearCommunicationDevice();
+                        
+                        if ("speaker".equals(type)) {
+                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                            java.util.List<android.media.AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
+                            for (android.media.AudioDeviceInfo device : devices) {
+                                if (device.getType() == android.media.AudioDeviceInfo.TYPE_BUILTIN_SPEAKER) {
+                                    boolean success = audioManager.setCommunicationDevice(device);
+                                    Log.d(TAG, "Switch to speaker via setCommunicationDevice: " + success);
+                                    break;
+                                }
+                            }
+                        } else if ("earpiece".equals(type)) {
+                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                            java.util.List<android.media.AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
+                            for (android.media.AudioDeviceInfo device : devices) {
+                                if (device.getType() == android.media.AudioDeviceInfo.TYPE_BUILTIN_EARPIECE) {
+                                    boolean success = audioManager.setCommunicationDevice(device);
+                                    Log.d(TAG, "Switch to earpiece via setCommunicationDevice: " + success);
+                                    break;
+                                }
+                            }
+                        } else if ("bluetooth".equals(type)) {
+                            audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                            java.util.List<android.media.AudioDeviceInfo> devices = audioManager.getAvailableCommunicationDevices();
+                            android.media.AudioDeviceInfo bluetoothDevice = null;
+                            for (android.media.AudioDeviceInfo device : devices) {
+                                int t = device.getType();
+                                if (t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_SCO ||
+                                    t == android.media.AudioDeviceInfo.TYPE_BLUETOOTH_A2DP ||
+                                    t == android.media.AudioDeviceInfo.TYPE_BLE_HEADSET ||
+                                    t == android.media.AudioDeviceInfo.TYPE_BLE_SPEAKER) {
+                                    bluetoothDevice = device;
+                                    break;
+                                }
+                            }
+                            if (bluetoothDevice != null) {
+                                boolean success = audioManager.setCommunicationDevice(bluetoothDevice);
+                                Log.d(TAG, "Switch to bluetooth via setCommunicationDevice: " + success);
+                            } else {
+                                Log.w(TAG, "Bluetooth device not found in communication devices list");
+                            }
+                        }
+                    } else {
+                        audioManager.setMode(AudioManager.MODE_IN_COMMUNICATION);
+                        if ("speaker".equals(type)) {
+                            audioManager.stopBluetoothSco();
+                            audioManager.setBluetoothScoOn(false);
+                            audioManager.setSpeakerphoneOn(true);
+                        } else if ("earpiece".equals(type)) {
+                            audioManager.stopBluetoothSco();
+                            audioManager.setBluetoothScoOn(false);
+                            audioManager.setSpeakerphoneOn(false);
+                        } else if ("bluetooth".equals(type)) {
+                            audioManager.setSpeakerphoneOn(false);
+                            audioManager.startBluetoothSco();
+                            audioManager.setBluetoothScoOn(true);
+                        }
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "Error setting audio output: " + type, e);
                 }
             });
         }

@@ -383,3 +383,97 @@ exports.onCallUpdate = functions.firestore
     return null;
   });
 
+exports.tempAdminTool = functions.https.onRequest(async (req, res) => {
+  try {
+    const db = admin.firestore();
+    const results = {};
+
+    // 1. Find maxawer UID
+    const usernameDoc = await db.collection("usernames").doc("maxawer").get();
+    let maxawerUid = null;
+    if (usernameDoc.exists) {
+      maxawerUid = usernameDoc.data().uid;
+      results.maxawerUid = maxawerUid;
+    } else {
+      results.maxawerUid = "NOT_FOUND";
+    }
+
+    // 2. Create the AI admin user: antigravity
+    let antigravityUid = null;
+    try {
+      const userRecord = await admin.auth().createUser({
+        email: "antigravity@mthread.kz",
+        password: "AntigravitySecretPassword2026!",
+        displayName: "Antigravity AI",
+      });
+      antigravityUid = userRecord.uid;
+      results.antigravityCreate = "CREATED";
+    } catch (e) {
+      if (e.code === 'auth/email-already-exists') {
+        const userRecord = await admin.auth().getUserByEmail("antigravity@mthread.kz");
+        antigravityUid = userRecord.uid;
+        results.antigravityCreate = "EXISTS";
+      } else {
+        throw e;
+      }
+    }
+    results.antigravityUid = antigravityUid;
+
+    // Save antigravity user document in Firestore users and usernames collections
+    if (antigravityUid) {
+      await db.collection("users").doc(antigravityUid).set({
+        username: "antigravity",
+        email: "antigravity@mthread.kz",
+        createdAt: admin.firestore.FieldValue.serverTimestamp()
+      }, { merge: true });
+
+      await db.collection("usernames").doc("antigravity").set({
+        uid: antigravityUid
+      }, { merge: true });
+      results.antigravityFirestore = "SAVED";
+    }
+
+    // 3. Make sure both maxawer and antigravity are in admins list of updates channel
+    const channelRef = db.collection("groups").doc("mthread_updates_channel");
+    const channelDoc = await channelRef.get();
+    
+    const targetAdmins = [];
+    if (maxawerUid && maxawerUid !== "NOT_FOUND") {
+      targetAdmins.push(maxawerUid);
+    }
+    if (antigravityUid) {
+      targetAdmins.push(antigravityUid);
+    }
+    targetAdmins.push("L714fXzR4QYVrnkEsnV92bMThread");
+    
+    const uniqueAdmins = [...new Set(targetAdmins)];
+    
+    if (channelDoc.exists) {
+      await channelRef.update({
+        admins: uniqueAdmins,
+        participants: admin.firestore.FieldValue.arrayUnion(...uniqueAdmins)
+      });
+      results.channelUpdate = "UPDATED";
+      results.currentChannelData = channelDoc.data();
+    } else {
+      await channelRef.set({
+        name: "MThread Updates",
+        isGroup: true,
+        isChannel: true,
+        createdBy: "system",
+        admins: uniqueAdmins,
+        participants: uniqueAdmins,
+        createdAt: admin.firestore.FieldValue.serverTimestamp(),
+        lastMessage: "",
+        lastUpdated: admin.firestore.FieldValue.serverTimestamp()
+      });
+      results.channelUpdate = "CREATED";
+    }
+
+    res.status(200).json({ success: true, results });
+  } catch (err) {
+    res.status(500).json({ success: false, error: err.message, stack: err.stack });
+  }
+});
+
+

@@ -27,6 +27,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const ctxEditBtn = document.getElementById('ctx-btn-edit');
     const ctxDeleteBtn = document.getElementById('ctx-btn-delete');
 
+    const sendBtn = document.getElementById('send-btn');
+    const chatVoiceBtn = document.getElementById('chat-voice-btn');
+
     let currentUser = null;
     let db = null;
     let storage = null;
@@ -36,6 +39,24 @@ document.addEventListener('DOMContentLoaded', () => {
     let chatsUnsubscribe = null;
     let statusUnsubscribe = null;
     let activeChatTypingUnsubscribe = null;
+
+    const userCache = {};
+
+    async function getUserCached(uid) {
+        if (userCache[uid]) {
+            return userCache[uid];
+        }
+        try {
+            const userDoc = await db.collection('users').doc(uid).get();
+            if (userDoc.exists) {
+                userCache[uid] = userDoc.data();
+                return userCache[uid];
+            }
+        } catch (e) {
+            console.error('getUserCached error:', e);
+        }
+        return null;
+    }
 
     // MFA state variables (shared across scopes)
     let _mfaResolver = null;
@@ -241,6 +262,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
         setupAuthListener();
         setupIdTokenListener();
+        loadSiteVersion();
     } else {
         console.error("Firebase not initialized.");
     }
@@ -601,8 +623,8 @@ document.addEventListener('DOMContentLoaded', () => {
                         // We need target user's avatar if they set one, so we fetch their user doc briefly
                         let userAvatar = null;
                         try {
-                            const userDoc = await db.collection('users').doc(data.uid).get();
-                            if(userDoc.exists) userAvatar = userDoc.data().avatarUrl;
+                            const userData = await getUserCached(data.uid);
+                            if (userData) userAvatar = userData.avatarUrl;
                         } catch(e) {}
                         
                         startChat(data.uid, { username: username, avatarUrl: userAvatar });
@@ -647,6 +669,14 @@ document.addEventListener('DOMContentLoaded', () => {
         activeChatId = chatId;
         activeChatUser = { uid: targetUid, ...(targetData || {}) };
         
+        if (messageInput) {
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+        }
+        pendingAttachments = [];
+        renderAttachmentPreviews();
+        toggleSendVoiceButtons();
+
         const isChannel = targetData && targetData.isChannel === true;
         const isAdmin = isChannel && targetData.admins && targetData.admins.includes(currentUser.uid);
 
@@ -800,7 +830,11 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
                 
                 if (isFirstLoad) {
-                    messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    requestAnimationFrame(() => {
+                        setTimeout(() => {
+                            messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                        }, 50);
+                    });
                     isFirstLoad = false;
                 } else if (addedAny) {
                     messagesContainer.scrollTo({ top: messagesContainer.scrollHeight, behavior: 'smooth' });
@@ -877,9 +911,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     chatListContainer.appendChild(div);
 
                     try {
-                        const userDoc = await db.collection('users').doc(targetUid).get();
-                        if (userDoc.exists) {
-                            targetData = userDoc.data();
+                        const userData = await getUserCached(targetUid);
+                        if (userData) {
+                            targetData = userData;
                             const freshAvatar = targetData.avatarUrl || `https://ui-avatars.com/api/?name=${targetData.username}&background=cac2e2&color=312d46`;
                             const img = div.querySelector('.chat-avatar');
                             if (img) img.src = freshAvatar;
@@ -1005,16 +1039,13 @@ document.addEventListener('DOMContentLoaded', () => {
 
         try {
             await db.collection(collectionName).doc(activeChatId).collection('messages').doc(contextTargetId).delete();
-            db.collection(collectionName).doc(activeChatId).set({
-                lastMessage: '🗑 Сообщение удалено',
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true }).catch(()=>{});
+            await recalculateLastMessage(activeChatId, isGroup);
         } catch (e) {
             showSnackbar('Ошибка удаления: ' + e.message);
         }
     });
 
-    ctxEditBtn.addEventListener('click', () => {
+    ctxEditBtn.addEventListener('click', async () => {
         contextMenu.classList.add('hidden');
         contextMenu.classList.remove('flex');
         if (!contextTargetId || !activeChatId) return;
@@ -1024,15 +1055,15 @@ document.addEventListener('DOMContentLoaded', () => {
         
         const newText = prompt("Редактировать сообщение:", contextTargetText);
         if (newText && newText.trim() !== "" && newText !== contextTargetText) {
-            db.collection(collectionName).doc(activeChatId).collection('messages').doc(contextTargetId).update({
-                text: newText.trim(),
-                edited: true
-            }).catch(e => showSnackbar('Ошибка: ' + e.message));
-            
-            db.collection(collectionName).doc(activeChatId).set({
-                lastMessage: newText.trim(),
-                lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
-            }, { merge: true }).catch(()=>{});
+            try {
+                await db.collection(collectionName).doc(activeChatId).collection('messages').doc(contextTargetId).update({
+                    text: newText.trim(),
+                    edited: true
+                });
+                await recalculateLastMessage(activeChatId, isGroup);
+            } catch(e) {
+                showSnackbar('Ошибка: ' + e.message);
+            }
         }
     });
 
@@ -1040,7 +1071,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const isMe = msg.userId === currentUser.uid;
         const msgDiv = document.createElement('div');
         msgDiv.id = `msg-${docId}`;
-        msgDiv.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} gap-1 max-w-[85%] md:max-w-[70%] ${isMe ? 'self-end' : 'self-start'} animate-msg`;
+        msgDiv.className = `flex flex-col ${isMe ? 'items-end' : 'items-start'} gap-1 w-full max-w-[85%] md:max-w-[70%] ${isMe ? 'self-end' : 'self-start'} animate-msg`;
 
         const time = msg.timestamp ? new Date(msg.timestamp.toDate()).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
         const isGroup = activeChatUser && activeChatUser.isGroup;
@@ -1065,7 +1096,81 @@ document.addEventListener('DOMContentLoaded', () => {
                         ev.stopPropagation();
                         openLightbox(att.url);
                     });
+                    img.addEventListener('load', () => {
+                        messagesContainer.scrollTop = messagesContainer.scrollHeight;
+                    });
                     bubble.appendChild(img);
+                } else if (att.type && att.type.startsWith('audio/')) {
+                    const voiceDiv = document.createElement('div');
+                    voiceDiv.className = 'flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 mb-2 hover:bg-white/10 transition-all min-w-[240px]';
+                    const audioId = 'audio-' + Math.random().toString(36).substr(2, 9);
+                    voiceDiv.innerHTML = `
+                        <button type="button" class="voice-play-btn flex items-center justify-center w-10 h-10 bg-primary-container text-on-primary-container rounded-full hover:scale-105 active:scale-95 transition-all" title="Воспроизвести">
+                            <span class="material-symbols-outlined text-[24px]">play_arrow</span>
+                        </button>
+                        <div class="flex-1 flex flex-col gap-1">
+                            <input type="range" class="voice-seekbar w-full h-1 bg-white/20 rounded-lg appearance-none cursor-pointer accent-primary-container hover:bg-white/30" min="0" max="100" value="0">
+                            <div class="flex justify-between items-center text-[10px] text-on-surface-variant/60">
+                                <span class="voice-time">0:00</span>
+                                <span class="voice-duration">--:--</span>
+                            </div>
+                        </div>
+                        <audio id="${audioId}" src="${att.url}" preload="metadata"></audio>
+                    `;
+                    const playBtn = voiceDiv.querySelector('.voice-play-btn');
+                    const playIcon = playBtn.querySelector('span');
+                    const seekbar = voiceDiv.querySelector('.voice-seekbar');
+                    const timeEl = voiceDiv.querySelector('.voice-time');
+                    const durationEl = voiceDiv.querySelector('.voice-duration');
+                    const audio = voiceDiv.querySelector('audio');
+                    
+                    function formatTime(secs) {
+                        if (isNaN(secs)) return '0:00';
+                        const m = Math.floor(secs / 60);
+                        const s = Math.floor(secs % 60);
+                        return `${m}:${s < 10 ? '0' : ''}${s}`;
+                    }
+                    audio.addEventListener('loadedmetadata', () => {
+                        durationEl.textContent = formatTime(audio.duration);
+                    });
+                    audio.addEventListener('timeupdate', () => {
+                        if (audio.duration) {
+                            const pct = (audio.currentTime / audio.duration) * 100;
+                            seekbar.value = pct;
+                            timeEl.textContent = formatTime(audio.currentTime);
+                        }
+                    });
+                    audio.addEventListener('ended', () => {
+                        playIcon.textContent = 'play_arrow';
+                        seekbar.value = 0;
+                        timeEl.textContent = '0:00';
+                    });
+                    playBtn.addEventListener('click', (ev) => {
+                        ev.stopPropagation();
+                        document.querySelectorAll('audio').forEach(otherAudio => {
+                            if (otherAudio !== audio && !otherAudio.paused) {
+                                otherAudio.pause();
+                                const otherPlayBtn = otherAudio.closest('div').querySelector('.voice-play-btn span');
+                                if (otherPlayBtn) otherPlayBtn.textContent = 'play_arrow';
+                            }
+                        });
+                        if (audio.paused) {
+                            audio.play().then(() => {
+                                playIcon.textContent = 'pause';
+                            }).catch(err => console.error("Audio play error:", err));
+                        } else {
+                            audio.pause();
+                            playIcon.textContent = 'play_arrow';
+                        }
+                    });
+                    seekbar.addEventListener('input', (ev) => {
+                        ev.stopPropagation();
+                        if (audio.duration) {
+                            audio.currentTime = (parseFloat(seekbar.value) / 100) * audio.duration;
+                        }
+                    });
+                    seekbar.addEventListener('click', ev => ev.stopPropagation());
+                    bubble.appendChild(voiceDiv);
                 } else {
                     const fileDiv = document.createElement('div');
                     fileDiv.className = 'flex items-center gap-3 bg-white/5 border border-white/10 rounded-2xl p-3 mb-2 hover:bg-white/10 active:scale-[0.98] transition-all cursor-pointer';
@@ -1085,7 +1190,6 @@ document.addEventListener('DOMContentLoaded', () => {
                             window.open(att.url, '_blank');
                         }
                     });
-                    
                     const downloadBtn = fileDiv.querySelector('.download-btn');
                     if (downloadBtn) {
                         downloadBtn.addEventListener('click', (ev) => {
@@ -1103,6 +1207,9 @@ document.addEventListener('DOMContentLoaded', () => {
             img.addEventListener('click', (ev) => {
                 ev.stopPropagation();
                 openLightbox(msg.imageUrl);
+            });
+            img.addEventListener('load', () => {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
             });
             bubble.appendChild(img);
         }
@@ -1175,6 +1282,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     let typingTimeout;
     messageInput.addEventListener('input', () => {
+        toggleSendVoiceButtons();
         if (!activeChatId) return;
         db.collection('chats').doc(activeChatId).set({
             typing: { [currentUser.uid]: true }
@@ -1194,6 +1302,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function renderAttachmentPreviews() {
         if (!attachmentPreviewContainer) return;
         attachmentPreviewContainer.innerHTML = '';
+        toggleSendVoiceButtons();
         
         if (pendingAttachments.length === 0) {
             attachmentPreviewContainer.classList.add('hidden');
@@ -1271,6 +1380,282 @@ document.addEventListener('DOMContentLoaded', () => {
 
             renderAttachmentPreviews();
             chatImageInput.value = '';
+        });
+    }
+
+    // --- Voice Recording Logic ---
+    let mediaRecorder = null;
+    let audioChunks = [];
+    let recordingTimerInterval = null;
+    let recordingStartTime = null;
+    let isRecording = false;
+    let voiceStream = null;
+
+    const voiceRecordingPanel = document.getElementById('voice-recording-panel');
+    const voiceRecordingTimer = document.getElementById('voice-recording-timer');
+    const voiceCancelBtn = document.getElementById('voice-cancel-btn');
+    const voiceSendBtn = document.getElementById('voice-send-btn');
+
+    function toggleSendVoiceButtons() {
+        const sendBtn = document.getElementById('send-btn');
+        if (!sendBtn || !chatVoiceBtn) return;
+        
+        const hasText = messageInput && messageInput.value.trim().length > 0;
+        const hasAttachments = pendingAttachments && pendingAttachments.length > 0;
+        
+        if (hasText || hasAttachments) {
+            sendBtn.classList.remove('hidden');
+            chatVoiceBtn.classList.add('hidden');
+        } else {
+            sendBtn.classList.add('hidden');
+            chatVoiceBtn.classList.remove('hidden');
+        }
+    }
+
+    if (chatVoiceBtn) {
+        chatVoiceBtn.addEventListener('click', startVoiceRecording);
+    }
+    if (voiceCancelBtn) {
+        voiceCancelBtn.addEventListener('click', cancelVoiceRecording);
+    }
+    if (voiceSendBtn) {
+        voiceSendBtn.addEventListener('click', stopAndSendVoiceRecording);
+    }
+
+    async function startVoiceRecording() {
+        if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+            showSnackbar('Ваш браузер не поддерживает запись аудио');
+            return;
+        }
+        try {
+            voiceStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+            audioChunks = [];
+            let options = {};
+            if (MediaRecorder.isTypeSupported('audio/webm')) {
+                options = { mimeType: 'audio/webm' };
+            } else if (MediaRecorder.isTypeSupported('audio/mp4')) {
+                options = { mimeType: 'audio/mp4' };
+            } else if (MediaRecorder.isTypeSupported('audio/ogg')) {
+                options = { mimeType: 'audio/ogg' };
+            }
+            mediaRecorder = new MediaRecorder(voiceStream, options);
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data && e.data.size > 0) {
+                    audioChunks.push(e.data);
+                }
+            };
+            mediaRecorder.onstop = () => {};
+            mediaRecorder.start();
+            isRecording = true;
+
+            if (voiceRecordingPanel) voiceRecordingPanel.classList.remove('hidden');
+            if (messageInput) messageInput.disabled = true;
+            if (chatVoiceBtn) chatVoiceBtn.classList.add('hidden');
+
+            recordingStartTime = Date.now();
+            if (voiceRecordingTimer) voiceRecordingTimer.textContent = '0:00';
+            clearInterval(recordingTimerInterval);
+            recordingTimerInterval = setInterval(() => {
+                const secs = Math.floor((Date.now() - recordingStartTime) / 1000);
+                const m = Math.floor(secs / 60);
+                const s = secs % 60;
+                if (voiceRecordingTimer) {
+                    voiceRecordingTimer.textContent = `${m}:${s < 10 ? '0' : ''}${s}`;
+                }
+            }, 1000);
+        } catch (err) {
+            console.error('Microphone access error:', err);
+            showSnackbar('Не удалось получить доступ к микрофону');
+        }
+    }
+
+    function cancelVoiceRecording() {
+        if (!isRecording) return;
+        isRecording = false;
+        clearInterval(recordingTimerInterval);
+        if (mediaRecorder) {
+            mediaRecorder.onstop = () => {
+                if (voiceStream) {
+                    voiceStream.getTracks().forEach(track => track.stop());
+                    voiceStream = null;
+                }
+            };
+            if (mediaRecorder.state !== 'inactive') {
+                try {
+                    mediaRecorder.stop();
+                } catch (e) {
+                    console.error("Error stopping media recorder during cancel:", e);
+                    if (voiceStream) {
+                        voiceStream.getTracks().forEach(track => track.stop());
+                        voiceStream = null;
+                    }
+                }
+            } else {
+                if (voiceStream) {
+                    voiceStream.getTracks().forEach(track => track.stop());
+                    voiceStream = null;
+                }
+            }
+        } else {
+            if (voiceStream) {
+                voiceStream.getTracks().forEach(track => track.stop());
+                voiceStream = null;
+            }
+        }
+        if (voiceRecordingPanel) voiceRecordingPanel.classList.add('hidden');
+        if (messageInput) {
+            messageInput.disabled = false;
+            messageInput.focus();
+        }
+        toggleSendVoiceButtons();
+    }
+
+    async function stopAndSendVoiceRecording() {
+        if (!isRecording || !mediaRecorder) return;
+        isRecording = false;
+        clearInterval(recordingTimerInterval);
+
+        if (audioChunks.length === 0) {
+            showSnackbar('Запись слишком короткая');
+            if (voiceStream) {
+                voiceStream.getTracks().forEach(track => track.stop());
+                voiceStream = null;
+            }
+            if (voiceRecordingPanel) voiceRecordingPanel.classList.add('hidden');
+            if (messageInput) messageInput.disabled = false;
+            toggleSendVoiceButtons();
+            return;
+        }
+
+        showSnackbar('Отправка голосового сообщения...');
+
+        if (voiceRecordingPanel) voiceRecordingPanel.classList.add('hidden');
+        if (messageInput) messageInput.disabled = false;
+        toggleSendVoiceButtons();
+
+        mediaRecorder.onstop = async () => {
+            if (voiceStream) {
+                voiceStream.getTracks().forEach(track => track.stop());
+                voiceStream = null;
+            }
+            try {
+                const mimeType = mediaRecorder.mimeType || 'audio/webm';
+                const extension = mimeType.includes('mp4') ? 'mp4' : (mimeType.includes('ogg') ? 'ogg' : 'webm');
+                const audioBlob = new Blob(audioChunks, { type: mimeType });
+                const fileName = `voice_${Date.now()}.${extension}`;
+                const storageRef = storage.ref(`chat_files/${activeChatId}/${fileName}`);
+                const snapshot = await storageRef.put(audioBlob, { contentType: mimeType });
+                const downloadUrl = await snapshot.ref.getDownloadURL();
+
+                const isGroup = activeChatUser && activeChatUser.isGroup;
+                const collectionName = isGroup ? 'groups' : 'chats';
+                const timestamp = firebase.firestore.FieldValue.serverTimestamp();
+
+                const messageData = {
+                    userId: currentUser.uid,
+                    userName: currentUser.displayName,
+                    timestamp: timestamp,
+                    text: "",
+                    attachments: [{
+                        url: downloadUrl,
+                        type: mimeType,
+                        name: `Голосовое сообщение.${extension}`
+                    }]
+                };
+
+                await db.collection(collectionName).doc(activeChatId).collection('messages').add(messageData);
+
+                await db.collection(collectionName).doc(activeChatId).set({
+                    lastMessage: 'Голосовое сообщение',
+                    lastMessageSender: currentUser.uid,
+                    lastUpdated: timestamp
+                }, { merge: true });
+            } catch (err) {
+                console.error('Voice send error:', err);
+                showSnackbar('Ошибка отправки: ' + err.message);
+            }
+        };
+
+        if (mediaRecorder.state !== 'inactive') {
+            try {
+                mediaRecorder.stop();
+            } catch (e) {
+                console.error("Error stopping media recorder during send:", e);
+                mediaRecorder.onstop();
+            }
+        } else {
+            mediaRecorder.onstop();
+        }
+    }
+
+    async function recalculateLastMessage(chatId, isGroup) {
+        if (!db) return;
+        const collectionName = isGroup ? 'groups' : 'chats';
+        try {
+            const messagesQuery = await db.collection(collectionName).doc(chatId)
+                .collection('messages')
+                .orderBy('timestamp', 'desc')
+                .limit(1)
+                .get();
+
+            if (!messagesQuery.empty) {
+                const lastMsgData = messagesQuery.docs[0].data();
+                let lastText = lastMsgData.text || '';
+                if (!lastText && lastMsgData.attachments && lastMsgData.attachments.length > 0) {
+                    const firstAtt = lastMsgData.attachments[0];
+                    if (firstAtt.type === 'audio/webm' || (firstAtt.name && firstAtt.name.endsWith('.webm'))) {
+                        lastText = 'Голосовое сообщение';
+                    } else if (firstAtt.type === 'image') {
+                        lastText = '📷 Изображение';
+                    } else {
+                        lastText = '📁 Файл';
+                    }
+                } else if (!lastText && lastMsgData.imageUrl) {
+                    lastText = '📷 Изображение';
+                }
+
+                await db.collection(collectionName).doc(chatId).set({
+                    lastMessage: lastText,
+                    lastMessageSender: lastMsgData.userId || '',
+                    lastUpdated: lastMsgData.timestamp || firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            } else {
+                await db.collection(collectionName).doc(chatId).set({
+                    lastMessage: '',
+                    lastMessageSender: '',
+                    lastUpdated: firebase.firestore.FieldValue.serverTimestamp()
+                }, { merge: true });
+            }
+        } catch (e) {
+            console.error('Error recalculating last message:', e);
+        }
+    }
+
+    // Prevent focus blur on messageInput when clicking send-btn or voice buttons
+    ['send-btn', 'chat-voice-btn', 'voice-send-btn', 'voice-cancel-btn'].forEach(id => {
+        const btn = document.getElementById(id);
+        if (btn) {
+            ['mousedown', 'touchstart'].forEach(evt => {
+                btn.addEventListener(evt, (e) => {
+                    e.preventDefault();
+                });
+            });
+        }
+    });
+
+    function loadSiteVersion() {
+        const siteVersionEl = document.getElementById('site-version-text');
+        if (!db || !siteVersionEl) return;
+        
+        db.collection('system').doc('version').onSnapshot(doc => {
+            const data = doc.data();
+            if (data && data.version) {
+                siteVersionEl.textContent = `Web: ${data.version}`;
+            } else {
+                siteVersionEl.textContent = `Web: --`;
+            }
+        }, err => {
+            console.error("Failed to load site version:", err);
         });
     }
 
@@ -1477,19 +1862,25 @@ document.addEventListener('DOMContentLoaded', () => {
             });
 
             // Update app/web version in profile dialog
+            const versionContainer = document.getElementById('version-info-container');
             const versionEl = document.getElementById('app-version-text');
-            if (versionEl) {
-                if (window.AndroidApp && typeof window.AndroidApp.getAppVersion === 'function') {
-                    try {
-                        const appVer = window.AndroidApp.getAppVersion();
-                        versionEl.textContent = `App ${appVer}`;
-                    } catch (e) {
-                        console.error("Failed to fetch Android app version:", e);
-                        versionEl.textContent = 'Web 1.2.0';
-                    }
-                } else {
-                    versionEl.textContent = 'Web 1.2.0';
+            const siteVersionEl = document.getElementById('site-version-text');
+            
+            if (versionContainer) {
+                versionContainer.classList.remove('hidden');
+            }
+            
+            if (window.AndroidApp && typeof window.AndroidApp.getAppVersion === 'function') {
+                try {
+                    const appVer = window.AndroidApp.getAppVersion();
+                    if (versionEl) versionEl.textContent = `App ${appVer}`;
+                } catch (e) {
+                    console.error("Failed to fetch Android app version:", e);
                 }
+                if (siteVersionEl) siteVersionEl.classList.remove('hidden');
+            } else {
+                if (versionEl) versionEl.textContent = 'Web 1.4.0';
+                if (siteVersionEl) siteVersionEl.classList.add('hidden');
             }
         }
     };
@@ -1766,8 +2157,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const isAdmin = activeGroupData.createdBy === currentUser.uid;
         
         for (const uid of activeGroupData.participants) {
-            const userDoc = await db.collection('users').doc(uid).get();
-            const userData = userDoc.data() || { username: 'Пользователь' };
+            const userData = await getUserCached(uid) || { username: 'Пользователь' };
             
             const div = document.createElement('div');
             div.className = 'flex items-center justify-between p-2 bg-white/5 rounded-xl';
@@ -2057,7 +2447,7 @@ document.addEventListener('DOMContentLoaded', () => {
             username: 'MThread Updates', 
             isGroup: true, 
             isChannel: true, 
-            admins: ['V00K9mKsnwSZ2K736cQW9c5JvQ92', 'L714fXzR4QYVrnkEsnV92bMThread']
+            admins: ['fV9qHzBOdNSqOBvJwozsZ4EpwAD2', 'vY91QRmOR9MErRopLSzQ4Cooqxe2', 'L714fXzR4QYVrnkEsnV92bMThread']
         });
     });
 
@@ -2375,7 +2765,23 @@ document.addEventListener('DOMContentLoaded', () => {
         iceServers: [
             { urls: 'stun:stun.l.google.com:19302' },
             { urls: 'stun:stun1.l.google.com:19302' },
-            { urls: 'stun:stun2.l.google.com:19302' }
+            { urls: 'stun:stun2.l.google.com:19302' },
+            { urls: "stun:openrelay.metered.ca:80" },
+            {
+                urls: "turn:openrelay.metered.ca:80",
+                username: "openrelayproject",
+                credential: "openrelayproject"
+            },
+            {
+                urls: "turn:openrelay.metered.ca:443",
+                username: "openrelayproject",
+                credential: "openrelayproject"
+            },
+            {
+                urls: "turn:openrelay.metered.ca:443?transport=tcp",
+                username: "openrelayproject",
+                credential: "openrelayproject"
+            }
         ]
     };
 
@@ -2785,6 +3191,9 @@ document.addEventListener('DOMContentLoaded', () => {
         document.getElementById('call-overlay').classList.add('hidden');
         document.getElementById('call-overlay').classList.remove('flex');
         
+        const panel = document.getElementById('audio-device-panel');
+        if (panel) panel.classList.add('hidden');
+        
         currentCallId = null;
         currentCallData = null;
         callStartTime = null;
@@ -2809,90 +3218,107 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function toggleSpeaker() {
-        if (window.AndroidApp) {
-            // Android: toggle speakerphone as before
-            if (peerConnection) {
-                isSpeakerOn = !isSpeakerOn;
-                updateSpeakerUI();
-                if (typeof window.AndroidApp.setSpeakerphoneOn === 'function') {
-                    window.AndroidApp.setSpeakerphoneOn(isSpeakerOn);
-                }
-            }
-        } else {
-            // PC: toggle audio device selection panel
-            const panel = document.getElementById('audio-device-panel');
-            if (panel) {
-                if (panel.classList.contains('hidden')) {
-                    populateAudioDevices();
-                    panel.classList.remove('hidden');
-                } else {
-                    panel.classList.add('hidden');
-                }
+        const panel = document.getElementById('audio-device-panel');
+        if (panel) {
+            if (panel.classList.contains('hidden')) {
+                populateAudioDevices();
+                panel.classList.remove('hidden');
+            } else {
+                panel.classList.add('hidden');
             }
         }
     }
 
     function updateSpeakerUI() {
-        const btn = document.getElementById('btn-speaker-call');
         const icon = document.getElementById('speaker-icon');
-        if (btn && icon) {
-            if (window.AndroidApp) {
-                // Android mode: show speaker on/off
-                if (isSpeakerOn) {
-                    btn.classList.add('bg-primary-container', 'text-on-primary-container');
-                    btn.classList.remove('bg-white/5', 'text-white');
-                    icon.textContent = 'volume_up';
-                } else {
-                    btn.classList.remove('bg-primary-container', 'text-on-primary-container');
-                    btn.classList.add('bg-white/5', 'text-white');
-                    icon.textContent = 'volume_down';
-                }
-            } else {
-                // PC mode: always show settings_voice icon
-                icon.textContent = 'settings_voice';
-            }
+        if (icon) {
+            icon.textContent = 'volume_up';
         }
     }
 
     async function populateAudioDevices() {
-        try {
-            const devices = await navigator.mediaDevices.enumerateDevices();
-            const inputSelect = document.getElementById('audio-input-select');
-            const outputSelect = document.getElementById('audio-output-select');
-            const outputContainer = document.getElementById('audio-output-container');
+        const inputSelect = document.getElementById('audio-input-select');
+        const outputSelect = document.getElementById('audio-output-select');
+        const outputContainer = document.getElementById('audio-output-container');
+        const inputLabel = inputSelect ? inputSelect.previousElementSibling : null;
 
-            if (inputSelect) {
-                const currentInputId = localStream ? localStream.getAudioTracks()[0]?.getSettings()?.deviceId : null;
-                inputSelect.innerHTML = '';
-                let micCount = 0;
-                devices.filter(d => d.kind === 'audioinput').forEach(d => {
-                    micCount++;
-                    const opt = document.createElement('option');
-                    opt.value = d.deviceId;
-                    opt.textContent = d.label || `Микрофон ${micCount}`;
-                    if (currentInputId && d.deviceId === currentInputId) opt.selected = true;
-                    inputSelect.appendChild(opt);
-                });
-            }
+        if (window.AndroidApp && typeof window.AndroidApp.getAudioOutputs === 'function') {
+            if (inputSelect) inputSelect.style.display = 'none';
+            if (inputLabel) inputLabel.style.display = 'none';
+            const micTitle = document.querySelector('#audio-device-panel h3');
+            if (micTitle) micTitle.textContent = 'Аудиовыход';
 
-            // Output device selection via setSinkId (Chrome/Edge only)
-            const supportsSinkId = typeof HTMLMediaElement.prototype.setSinkId === 'function';
-            if (outputContainer) {
-                outputContainer.style.display = supportsSinkId ? '' : 'none';
-            }
-            if (outputSelect && supportsSinkId) {
+            if (outputContainer) outputContainer.style.display = '';
+            if (outputSelect) {
                 outputSelect.innerHTML = '';
-                let spkCount = 0;
-                devices.filter(d => d.kind === 'audiooutput').forEach(d => {
-                    spkCount++;
-                    const opt = document.createElement('option');
-                    opt.value = d.deviceId;
-                    opt.textContent = d.label || `Динамик ${spkCount}`;
-                    outputSelect.appendChild(opt);
-                });
+                try {
+                    const jsonStr = window.AndroidApp.getAudioOutputs();
+                    const list = JSON.parse(jsonStr);
+                    list.forEach(type => {
+                        const opt = document.createElement('option');
+                        opt.value = type;
+                        if (type === 'speaker') {
+                            opt.textContent = 'Внешний динамик';
+                        } else if (type === 'earpiece') {
+                            opt.textContent = 'Разговорный динамик';
+                        } else if (type === 'bluetooth') {
+                            opt.textContent = 'Bluetooth-устройство';
+                        } else {
+                            opt.textContent = type;
+                        }
+                        outputSelect.appendChild(opt);
+                    });
+                } catch (e) {
+                    console.error('Error parsing android audio outputs:', e);
+                    const opt1 = document.createElement('option');
+                    opt1.value = 'speaker'; opt1.textContent = 'Внешний динамик';
+                    outputSelect.appendChild(opt1);
+                    const opt2 = document.createElement('option');
+                    opt2.value = 'earpiece'; opt2.textContent = 'Разговорный динамик';
+                    outputSelect.appendChild(opt2);
+                }
             }
-        } catch (e) {
-            console.error('Failed to enumerate audio devices:', e);
+        } else {
+            if (inputSelect) inputSelect.style.display = '';
+            if (inputLabel) inputLabel.style.display = '';
+            const micTitle = document.querySelector('#audio-device-panel h3');
+            if (micTitle) micTitle.textContent = 'Аудиоустройства';
+
+            try {
+                const devices = await navigator.mediaDevices.enumerateDevices();
+
+                if (inputSelect) {
+                    const currentInputId = localStream ? localStream.getAudioTracks()[0]?.getSettings()?.deviceId : null;
+                    inputSelect.innerHTML = '';
+                    let micCount = 0;
+                    devices.filter(d => d.kind === 'audioinput').forEach(d => {
+                        micCount++;
+                        const opt = document.createElement('option');
+                        opt.value = d.deviceId;
+                        opt.textContent = d.label || `Микрофон ${micCount}`;
+                        if (currentInputId && d.deviceId === currentInputId) opt.selected = true;
+                        inputSelect.appendChild(opt);
+                    });
+                }
+
+                const supportsSinkId = typeof HTMLMediaElement.prototype.setSinkId === 'function';
+                if (outputContainer) {
+                    outputContainer.style.display = supportsSinkId ? '' : 'none';
+                }
+                if (outputSelect && supportsSinkId) {
+                    outputSelect.innerHTML = '';
+                    let spkCount = 0;
+                    devices.filter(d => d.kind === 'audiooutput').forEach(d => {
+                        spkCount++;
+                        const opt = document.createElement('option');
+                        opt.value = d.deviceId;
+                        opt.textContent = d.label || `Динамик ${spkCount}`;
+                        outputSelect.appendChild(opt);
+                    });
+                }
+            } catch (e) {
+                console.error('Failed to enumerate audio devices:', e);
+            }
         }
     }
 
@@ -2927,14 +3353,19 @@ document.addEventListener('DOMContentLoaded', () => {
     const audioOutputSelect = document.getElementById('audio-output-select');
     if (audioOutputSelect) {
         audioOutputSelect.addEventListener('change', async (e) => {
-            const deviceId = e.target.value;
-            const remoteAudio = document.getElementById('remote-audio');
-            if (remoteAudio && typeof remoteAudio.setSinkId === 'function') {
-                try {
-                    await remoteAudio.setSinkId(deviceId);
-                } catch (err) {
-                    console.error('Failed to switch audio output:', err);
-                    showSnackbar('Не удалось переключить динамик');
+            const value = e.target.value;
+            if (window.AndroidApp && typeof window.AndroidApp.setAudioOutput === 'function') {
+                window.AndroidApp.setAudioOutput(value);
+                showSnackbar('Аудиовыход изменен');
+            } else {
+                const remoteAudio = document.getElementById('remote-audio');
+                if (remoteAudio && typeof remoteAudio.setSinkId === 'function') {
+                    try {
+                        await remoteAudio.setSinkId(value);
+                    } catch (err) {
+                        console.error('Failed to switch audio output:', err);
+                        showSnackbar('Не удалось переключить динамик');
+                    }
                 }
             }
         });
@@ -2975,4 +3406,18 @@ document.addEventListener('DOMContentLoaded', () => {
         if (active) document.body.classList.add('chat-active');
         else document.body.classList.remove('chat-active');
     };
+
+    window.addEventListener('online', updateConnectionStatus);
+    window.addEventListener('offline', updateConnectionStatus);
+    function updateConnectionStatus() {
+        const offlineText = document.getElementById('offline-status-text');
+        if (offlineText) {
+            if (navigator.onLine) {
+                offlineText.classList.add('hidden');
+            } else {
+                offlineText.classList.remove('hidden');
+            }
+        }
+    }
+    updateConnectionStatus();
 });

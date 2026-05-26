@@ -97,9 +97,7 @@ service cloud.firestore {
           (
             get(/databases/$(database)/documents/groups/$(groupId)).data.isChannel == true
             && request.auth.uid in get(/databases/$(database)/documents/groups/$(groupId)).data.admins
-            && request.resource.data.text is string
-            && request.resource.data.text.size() <= 2000
-            && request.resource.data.userId == request.auth.uid
+            && isValidMessage()
           )
           ||
           (
@@ -132,6 +130,11 @@ service cloud.firestore {
       match /receiverCandidates/{candidateId} {
         allow read, write: if isAuth();
       }
+    }
+    // system collection: anyone can read, only admin@mthread.kz can write
+    match /system/{documentId} {
+      allow read: if true;
+      allow write: if isAuth() && request.auth.token.email == 'admin@mthread.kz';
     }
   }
 }

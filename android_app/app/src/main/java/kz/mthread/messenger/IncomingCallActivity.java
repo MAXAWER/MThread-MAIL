@@ -11,8 +11,15 @@ import android.content.SharedPreferences;
 import android.graphics.Color;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.AudioAttributes;
+import android.media.AudioManager;
+import android.media.MediaPlayer;
+import android.media.RingtoneManager;
+import android.net.Uri;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.VibrationEffect;
+import android.os.Vibrator;
 import android.util.Log;
 import android.view.Gravity;
 import android.view.View;
@@ -37,12 +44,14 @@ public class IncomingCallActivity extends AppCompatActivity {
     private String callId;
     private String callerName;
     private AnimatorSet pulseAnimatorSet;
+    private MediaPlayer mediaPlayer;
+    private Vibrator vibrator;
 
     private final BroadcastReceiver callCancelledReceiver = new BroadcastReceiver() {
         @Override
         public void onReceive(Context context, Intent intent) {
             Log.d(TAG, "Call cancelled broadcast received");
-            stopRingtoneService();
+            stopRingtoneAndVibration();
             finish();
         }
     };
@@ -56,7 +65,10 @@ public class IncomingCallActivity extends AppCompatActivity {
             setShowWhenLocked(true);
             setTurnScreenOn(true);
         }
-        getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
+        getWindow().addFlags(WindowManager.LayoutParams.FLAG_SHOW_WHEN_LOCKED
+                | WindowManager.LayoutParams.FLAG_TURN_SCREEN_ON
+                | WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON
+                | WindowManager.LayoutParams.FLAG_DISMISS_KEYGUARD);
 
         // Extract extras
         callId = getIntent().getStringExtra("callId");
@@ -75,6 +87,9 @@ public class IncomingCallActivity extends AppCompatActivity {
         } else {
             registerReceiver(callCancelledReceiver, filter);
         }
+
+        // Start playing ringtone and vibrating
+        startRingtoneAndVibration();
     }
 
     private void buildUI() {
@@ -203,19 +218,19 @@ public class IncomingCallActivity extends AppCompatActivity {
         declineButton.setOnClickListener(v -> onDeclineClicked());
         buttonContainer.addView(declineButton);
 
-        // Accept button (green)
-        ImageButton acceptButton = new ImageButton(this);
-        GradientDrawable acceptBg = new GradientDrawable();
-        acceptBg.setShape(GradientDrawable.OVAL);
-        acceptBg.setColor(Color.parseColor("#4CAF50"));
-        acceptButton.setBackground(acceptBg);
-        acceptButton.setImageResource(android.R.drawable.ic_menu_call);
-        acceptButton.setColorFilter(Color.WHITE);
-        acceptButton.setScaleType(ImageButton.ScaleType.CENTER_INSIDE);
-        LinearLayout.LayoutParams acceptParams = new LinearLayout.LayoutParams(buttonSize, buttonSize);
-        acceptButton.setLayoutParams(acceptParams);
-        acceptButton.setOnClickListener(v -> onAcceptClicked());
-        buttonContainer.addView(acceptButton);
+        // Open App button (blue)
+        ImageButton openButton = new ImageButton(this);
+        GradientDrawable openBg = new GradientDrawable();
+        openBg.setShape(GradientDrawable.OVAL);
+        openBg.setColor(Color.parseColor("#2196F3"));
+        openButton.setBackground(openBg);
+        openButton.setImageResource(android.R.drawable.ic_menu_view);
+        openButton.setColorFilter(Color.WHITE);
+        openButton.setScaleType(ImageButton.ScaleType.CENTER_INSIDE);
+        LinearLayout.LayoutParams openParams = new LinearLayout.LayoutParams(buttonSize, buttonSize);
+        openButton.setLayoutParams(openParams);
+        openButton.setOnClickListener(v -> onOpenClicked());
+        buttonContainer.addView(openButton);
 
         rootLayout.addView(buttonContainer);
 
@@ -240,14 +255,14 @@ public class IncomingCallActivity extends AppCompatActivity {
         pulseAnimatorSet.start();
     }
 
-    private void onAcceptClicked() {
-        Log.d(TAG, "Accept clicked. callId=" + callId);
+    private void onOpenClicked() {
+        Log.d(TAG, "Open clicked. callId=" + callId);
 
-        stopRingtoneService();
+        stopRingtoneAndVibration();
 
         Intent mainIntent = new Intent(this, MainActivity.class);
         mainIntent.putExtra("callId", callId);
-        mainIntent.putExtra("action", "accept");
+        mainIntent.putExtra("action", "open");
         mainIntent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
         startActivity(mainIntent);
 
@@ -257,7 +272,7 @@ public class IncomingCallActivity extends AppCompatActivity {
     private void onDeclineClicked() {
         Log.d(TAG, "Decline clicked. callId=" + callId);
 
-        stopRingtoneService();
+        stopRingtoneAndVibration();
 
         // Cancel notification
         if (callId != null && !callId.isEmpty()) {
@@ -311,13 +326,79 @@ public class IncomingCallActivity extends AppCompatActivity {
         }).start();
     }
 
-    private void stopRingtoneService() {
+    private void startRingtoneAndVibration() {
         try {
-            Intent stopIntent = new Intent(this, RingtoneService.class);
-            stopService(stopIntent);
-            Log.d(TAG, "RingtoneService stop requested");
+            Uri ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_RINGTONE);
+            if (ringtoneUri == null) {
+                ringtoneUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION);
+            }
+            mediaPlayer = new MediaPlayer();
+            mediaPlayer.setDataSource(this, ringtoneUri);
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                mediaPlayer.setAudioAttributes(new AudioAttributes.Builder()
+                        .setUsage(AudioAttributes.USAGE_NOTIFICATION_RINGTONE)
+                        .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                        .build());
+            } else {
+                mediaPlayer.setAudioStreamType(AudioManager.STREAM_RING);
+            }
+            mediaPlayer.setLooping(true);
+            mediaPlayer.setOnPreparedListener(new MediaPlayer.OnPreparedListener() {
+                @Override
+                public void onPrepared(MediaPlayer mp) {
+                    try {
+                        if (mediaPlayer != null) {
+                            mediaPlayer.start();
+                            Log.d(TAG, "Ringtone playback started (async)");
+                        }
+                    } catch (Exception e) {
+                        Log.e(TAG, "Error starting media player in onPrepared", e);
+                    }
+                }
+            });
+            mediaPlayer.prepareAsync();
         } catch (Exception e) {
-            Log.e(TAG, "Error stopping RingtoneService", e);
+            Log.e(TAG, "Error starting ringtone", e);
+        }
+
+        try {
+            vibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
+            if (vibrator != null && vibrator.hasVibrator()) {
+                long[] pattern = {0, 1000, 1000};
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(pattern, 0));
+                } else {
+                    vibrator.vibrate(pattern, 0);
+                }
+                Log.d(TAG, "Vibration started");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error starting vibration", e);
+        }
+    }
+
+    private void stopRingtoneAndVibration() {
+        try {
+            if (mediaPlayer != null) {
+                if (mediaPlayer.isPlaying()) {
+                    mediaPlayer.stop();
+                }
+                mediaPlayer.release();
+                mediaPlayer = null;
+                Log.d(TAG, "Ringtone stopped and released");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error stopping ringtone", e);
+        }
+
+        try {
+            if (vibrator != null) {
+                vibrator.cancel();
+                vibrator = null;
+                Log.d(TAG, "Vibration cancelled");
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "Error cancelling vibration", e);
         }
     }
 
@@ -339,7 +420,7 @@ public class IncomingCallActivity extends AppCompatActivity {
             pulseAnimatorSet = null;
         }
 
-        stopRingtoneService();
+        stopRingtoneAndVibration();
         super.onDestroy();
     }
 }

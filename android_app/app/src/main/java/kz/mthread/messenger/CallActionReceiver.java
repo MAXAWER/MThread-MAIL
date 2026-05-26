@@ -32,9 +32,9 @@ public class CallActionReceiver extends BroadcastReceiver {
             // Decline call in the background via Firestore REST API with client's saved token
             declineCallInBackground(context, callId);
 
-            // Stop ringtone service
-            Intent stopRingtone = new Intent(context, RingtoneService.class);
-            context.stopService(stopRingtone);
+            // Broadcast call cancellation to close IncomingCallActivity and stop sound/vibrator
+            Intent cancelBroadcast = new Intent("kz.mthread.messenger.CALL_CANCELLED");
+            context.sendBroadcast(cancelBroadcast);
         }
     }
 
